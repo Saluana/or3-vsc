@@ -438,6 +438,7 @@ defineExpose({
   scrollToItemKey,
   refreshMeasurements,
   measureItems,
+  isAtBottom,
 });
 </script>
 
