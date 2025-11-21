@@ -138,10 +138,23 @@ export class VirtualizerEngine {
     let endIndex = this.findIndexForOffset(visibleEnd);
 
     // Ensure tailCount items are included if we are near the end
-    if (this.config.tailCount > 0) {
-      // Requirement: "Keep last `tailCount` indexes in render window even if off-screen"
+    if (this.config.tailCount > 0 && this.count > 0) {
+      const tailStart = Math.max(0, this.count - this.config.tailCount);
+      
+      // To satisfy "Keep last `tailCount` indexes in render window even if off-screen",
+      // we must extend the single contiguous slice to cover the tail.
+      // Note: If the user is far from the bottom, this expands the rendered range significantly.
+      
+      // 1. Ensure the end of the range touches the last item
       if (endIndex < this.count - 1) {
-         // ... comments ...
+        endIndex = this.count - 1;
+      }
+      
+      // 2. Ensure the start of the range is at least at the start of the tail (if we were below it)
+      // OR if we are above it, the extension of endIndex already covers it.
+      // But wait, if we are at 95..99 (tailStart 90), we need to lower startIndex to 90.
+      if (startIndex > tailStart) {
+        startIndex = tailStart;
       }
     }
 

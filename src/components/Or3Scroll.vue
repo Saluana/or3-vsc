@@ -121,6 +121,30 @@ const onScroll = () => {
   updateRange();
 };
 
+// --- User Interaction Tracking ---
+let wheelTimeout: number | null = null;
+
+const onUserScrollStart = (e?: Event) => {
+  isUserScrolling.value = true;
+  
+  if (e?.type === 'wheel') {
+    if (wheelTimeout) clearTimeout(wheelTimeout);
+    wheelTimeout = setTimeout(() => {
+      isUserScrolling.value = false;
+      wheelTimeout = null;
+    }, 100) as any;
+  }
+};
+
+const onUserScrollEnd = () => {
+  // For touch/mouse, we clear immediately
+  if (wheelTimeout) {
+    clearTimeout(wheelTimeout);
+    wheelTimeout = null;
+  }
+  isUserScrolling.value = false;
+};
+
 const updateRange = () => {
   if (!container.value) return;
   
@@ -394,6 +418,13 @@ defineExpose({
     ref="container" 
     class="or3-scroll" 
     @scroll.passive="onScroll"
+    @touchstart.passive="onUserScrollStart"
+    @touchend.passive="onUserScrollEnd"
+    @touchcancel.passive="onUserScrollEnd"
+    @mousedown.passive="onUserScrollStart"
+    @mouseup.passive="onUserScrollEnd"
+    @wheel.passive="onUserScrollStart"
+    @mouseleave="onUserScrollEnd"
   >
     <div class="or3-scroll-track" :style="{ height: totalHeight + 'px' }">
       <div
