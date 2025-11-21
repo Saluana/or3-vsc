@@ -40,17 +40,21 @@ export class FenwickTree {
    */
   grow(newCapacity: number): void {
     if (newCapacity <= this.capacity) return;
+    
+    // Extract current values by computing differences
     const oldCapacity = this.capacity;
-    const newTree = new Float64Array(newCapacity + 1);
-    newTree.set(this.tree.subarray(0, oldCapacity + 1));
-    for (let i = 1; i <= oldCapacity; i++) {
-      const parent = i + (i & -i);
-      if (parent > oldCapacity && parent <= newCapacity) {
-        newTree[parent] += newTree[i];
-      }
+    const values = new Float64Array(newCapacity); // Size for new capacity
+    for (let i = 0; i < oldCapacity; i++) {
+      const current = this.query(i);
+      const prev = i > 0 ? this.query(i - 1) : 0;
+      values[i] = current - prev;
     }
+    // New indices are initialized to 0 (already done by Float64Array)
+    
+    // Resize and rebuild
     this.capacity = newCapacity;
-    this.tree = newTree;
+    this.tree = new Float64Array(newCapacity + 1);
+    this.build(values);
   }
 
   /**
