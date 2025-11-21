@@ -36,6 +36,24 @@ export class FenwickTree {
   }
 
   /**
+   * Grows the tree preserving existing sums. No-op if newCapacity <= current capacity.
+   */
+  grow(newCapacity: number): void {
+    if (newCapacity <= this.capacity) return;
+    const oldCapacity = this.capacity;
+    const newTree = new Float64Array(newCapacity + 1);
+    newTree.set(this.tree.subarray(0, oldCapacity + 1));
+    for (let i = 1; i <= oldCapacity; i++) {
+      const parent = i + (i & -i);
+      if (parent > oldCapacity && parent <= newCapacity) {
+        newTree[parent] += newTree[i];
+      }
+    }
+    this.capacity = newCapacity;
+    this.tree = newTree;
+  }
+
+  /**
    * Builds the tree from an array of values in O(n)
    */
   build(values: Float64Array | number[]): void {

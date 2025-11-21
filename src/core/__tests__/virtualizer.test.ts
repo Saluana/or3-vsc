@@ -106,6 +106,16 @@ describe('VirtualizerEngine', () => {
       // Let's scroll near the end
       const total = tailEngine.getTotalHeight(); // 5000
       const rangeBottom = tailEngine.computeRange(total - 500, 500);
-      expect(rangeBottom.endIndex).toBe(99);
+    expect(rangeBottom.endIndex).toBe(99);
+  });
+
+  it('should retain measured data when growing count incrementally', () => {
+    engine.setCount(2);
+    engine.setHeight(0, 100);
+
+    engine.setCount(4);
+
+    expect(engine.getOffsetForIndex(1)).toBe(100);
+    expect(engine.getTotalHeight()).toBe(100 + 50 + 50 + 50);
   });
 });

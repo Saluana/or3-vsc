@@ -57,6 +57,7 @@ const viewportHeight = ref(0);
 const scrollHeight = ref(0);
 const isUserScrolling = ref(false);
 const isAtBottom = ref(true); // Default to true? Or derive?
+let deferredScrollDelta = 0;
 
 // Engine
 const engine = new VirtualizerEngine({
@@ -98,6 +99,9 @@ const onScroll = () => {
   const target = container.value;
   scrollTop.value = target.scrollTop;
   scrollHeight.value = target.scrollHeight;
+  if (isUserScrolling.value) {
+    scheduleUserScrollEnd();
+  }
   
   // Update isAtBottom
   // Threshold? Requirements say "threshold" but don't specify default.
@@ -122,27 +126,39 @@ const onScroll = () => {
 };
 
 // --- User Interaction Tracking ---
-let wheelTimeout: number | null = null;
+let userScrollEndTimeout: number | null = null;
 
-const onUserScrollStart = (e?: Event) => {
-  isUserScrolling.value = true;
-  
-  if (e?.type === 'wheel') {
-    if (wheelTimeout) clearTimeout(wheelTimeout);
-    wheelTimeout = setTimeout(() => {
-      isUserScrolling.value = false;
-      wheelTimeout = null;
-    }, 100) as any;
+const applyDeferredScrollDelta = () => {
+  if (!deferredScrollDelta || !container.value) return;
+  container.value.scrollTop += deferredScrollDelta;
+  scrollTop.value = container.value.scrollTop;
+  deferredScrollDelta = 0;
+  updateRange();
+};
+
+const scheduleUserScrollEnd = () => {
+  if (userScrollEndTimeout) {
+    clearTimeout(userScrollEndTimeout);
   }
+  userScrollEndTimeout = window.setTimeout(() => {
+    isUserScrolling.value = false;
+    applyDeferredScrollDelta();
+    userScrollEndTimeout = null;
+  }, 140) as any;
+};
+
+const onUserScrollStart = () => {
+  isUserScrolling.value = true;
+  scheduleUserScrollEnd();
 };
 
 const onUserScrollEnd = () => {
-  // For touch/mouse, we clear immediately
-  if (wheelTimeout) {
-    clearTimeout(wheelTimeout);
-    wheelTimeout = null;
+  if (userScrollEndTimeout) {
+    clearTimeout(userScrollEndTimeout);
+    userScrollEndTimeout = null;
   }
   isUserScrolling.value = false;
+  applyDeferredScrollDelta();
 };
 
 const updateRange = () => {
@@ -205,35 +221,8 @@ const setItemRef = (index: number) => (el: any) => {
 const onItemResize = (index: number, entry: ResizeObserverEntry) => {
   const height = entry.borderBoxSize[0].blockSize;
   
-  // Feed engine
-  engine.setHeight(index, height);
-  
-  // If this update affects layout above current scroll position, we might need compensation.
-  // But we batch updates usually.
-  // For now, let's just update range on next frame or immediately?
-  // Design says: "Batch updates with requestAnimationFrame".
-  // Also: "Detect total delta for indexes < startIndex and adjust container scrollTop".
-  
-  // We need to track delta if index < startIndex.
-  // But engine.setHeight updates prefix sums immediately.
-  // So we can calculate delta by checking offset before and after?
-  // Or we can rely on the engine to tell us?
-  // The engine just updates data.
-  
-  // If we update height of item 5, and we are at item 10.
-  // The offset of item 10 increases.
-  // So scrollTop should increase to keep item 10 in place.
-  
-  // Implementation:
-  // 1. Get current anchor item (first visible item).
-  // 2. Get its offset BEFORE update.
-  // 3. Update height.
-  // 4. Get its offset AFTER update.
-  // 5. Diff is the scroll correction.
-  
-  // However, we might have multiple updates per frame.
-  // So we should queue them.
-  
+  // We queue the update to batch changes and detect scroll shifts.
+  // Do NOT update engine immediately, otherwise flushUpdates can't calculate delta.
   queueUpdate(index, height);
 };
 
@@ -304,8 +293,7 @@ const flushUpdates = () => {
       container.value.scrollTop += delta;
       scrollTop.value = container.value.scrollTop; // Sync
     } else {
-      container.value.scrollTop += delta;
-      scrollTop.value = container.value.scrollTop;
+      deferredScrollDelta += delta;
     }
   }
   
@@ -313,7 +301,7 @@ const flushUpdates = () => {
   updateRange();
   
   // If following output, snap to bottom?
-  if (props.maintainBottom && isAtBottom.value) {
+  if (props.maintainBottom && isAtBottom.value && !isUserScrolling.value) {
      scrollToBottom();
   }
 };
@@ -335,12 +323,16 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (updateRaf) cancelAnimationFrame(updateRaf);
+  if (userScrollEndTimeout) {
+    clearTimeout(userScrollEndTimeout);
+    userScrollEndTimeout = null;
+  }
   itemRefs.forEach((el) => resizeObserverManager.unobserve(el));
   itemRefs.clear();
 });
 
 // --- Watchers ---
-watch(() => props.items, (newItems, oldItems) => {
+watch(() => props.items, async (newItems, oldItems) => {
   // Handle initialization
   if (!oldItems || oldItems.length === 0) {
     engine.setCount(newItems.length);
@@ -356,40 +348,30 @@ watch(() => props.items, (newItems, oldItems) => {
   }
   
   if (newCount > oldCount) {
-    // Check for prepend
+    // Check for prepend by locating the old first key in the new list
     const firstKeyOld = getItemKey(oldItems[0]);
-    const firstKeyNew = getItemKey(newItems[0]);
+    const indexInNew = newItems.findIndex(item => getItemKey(item) === firstKeyOld);
     
-    if (firstKeyNew !== firstKeyOld) {
-      // Likely prepend.
-      // Find old first item in new list
-      const indexInNew = newItems.findIndex(item => getItemKey(item) === firstKeyOld);
-      
-      if (indexInNew > 0) {
-        // Prepended 'indexInNew' items
+    if (indexInNew > 0) {
+      // Confirm that the tail matches to reduce false positives on reorder
+      const tailMatches = oldItems.every((item, idx) => getItemKey(item) === getItemKey(newItems[idx + indexInNew]));
+      if (tailMatches) {
         const prependCount = indexInNew;
+        const heights = props.loadingHistory
+          ? await measureItems(newItems.slice(0, prependCount))
+          : new Array(prependCount).fill(NaN);
         
-        // Insert into engine
-        // We pass NaN to indicate unknown height (use estimate)
-        const newHeights = new Array(prependCount).fill(NaN);
-        engine.bulkInsert(0, newHeights);
+        engine.bulkInsert(0, heights);
         
-        // Adjust scroll position
-        // The offset of the old first item (now at indexInNew) is exactly what we need.
+        // Adjust scroll position using the new offsets
         const offsetShift = engine.getOffsetForIndex(indexInNew);
         
-        if (container.value) {
+        if (container.value && offsetShift !== 0) {
           container.value.scrollTop += offsetShift;
           scrollTop.value = container.value.scrollTop;
         }
         
-        // If there are also appended items, ensure count is correct
-        // bulkInsert updates count by prependCount.
-        // If newCount is still larger, it means we also appended.
-        // engine.setCount will handle resizing for the end.
-        // We can't check engine.count directly as it's private, but we know what we did.
-        // Actually, we can just call setCount(newCount) safely.
-        // It will resize if needed.
+        // Account for any appended items beyond the prepend
         engine.setCount(newCount);
         
         updateRange();
@@ -447,7 +429,11 @@ defineExpose({
       </div>
       
       <!-- Hidden Measurement Pool -->
-      <div class="or3-scroll-hidden-pool" aria-hidden="true">
+      <div
+        v-if="loadingHistory || itemsToMeasure.length"
+        class="or3-scroll-hidden-pool"
+        aria-hidden="true"
+      >
         <slot name="prepend-loading" v-if="loadingHistory" />
         <!-- We need a way to render specific items for measurement. 
              The requirement says: "Provide measureItems(items: T[]): Promise<number[]>".

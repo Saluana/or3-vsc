@@ -34,27 +34,33 @@ export class VirtualizerEngine {
   setCount(count: number): void {
     if (count === this.count) return;
 
-    const oldHeights = this.heights;
-    const oldFlags = this.flags;
+    const oldCount = this.count;
 
-    this.heights = new Float64Array(count);
-    this.flags = new Uint8Array(count);
-    
-    // Copy existing data
-    const copyLen = Math.min(this.count, count);
-    this.heights.set(oldHeights.subarray(0, copyLen));
-    this.flags.set(oldFlags.subarray(0, copyLen));
-
-    // Initialize new items with NaN (unknown)
-    if (count > this.count) {
-      this.heights.fill(NaN, this.count);
+    // Shrink path: rebuild to keep indexes consistent
+    if (count < oldCount) {
+      this.heights = new Float64Array(this.heights.subarray(0, count));
+      this.flags = new Uint8Array(this.flags.subarray(0, count));
+      this.count = count;
+      this.rebuildPrefixSums();
+      return;
     }
 
+    // Growth path
+    const newHeights = new Float64Array(count);
+    const newFlags = new Uint8Array(count);
+    newHeights.set(this.heights);
+    newFlags.set(this.flags);
+    newHeights.fill(NaN, oldCount);
+
+    this.heights = newHeights;
+    this.flags = newFlags;
     this.count = count;
 
-    // Rebuild Fenwick Tree
-    // We need to feed it the effective heights (known or estimated)
-    this.rebuildPrefixSums();
+    this.prefixSums.grow(count);
+    for (let i = oldCount; i < count; i++) {
+      this.prefixSums.update(i, this.config.estimateHeight);
+    }
+
   }
 
   /**
