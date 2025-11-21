@@ -128,7 +128,12 @@ const sendMessage = async () => {
         }
     } finally {
         isStreaming.value = false;
-        nextTick(() => scroller.value?.scrollToBottom());
+        // Only auto-scroll if user was already at bottom
+        nextTick(() => {
+            if (scroller.value?.isAtBottom.value) {
+                scroller.value?.scrollToBottom();
+            }
+        });
     }
 };
 </script>

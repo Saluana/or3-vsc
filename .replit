@@ -1,3 +1,4 @@
+modules = ["bun-1.2"]
 modules = ["nodejs-20", "vue-node-20", "web"]
 [agent]
 expertMode = true
@@ -33,6 +34,8 @@ outputType = "webview"
 localPort = 5000
 externalPort = 80
 
+[agent]
+expertMode = true
 [[ports]]
 localPort = 32949
 externalPort = 3000
