@@ -9,29 +9,14 @@ const __dirname = dirname(__filename)
 
 export default defineConfig({
   plugins: [vue()],
-  server: {
-    host: '0.0.0.0',
-    port: 5000,
-    strictPort: true
+  root: 'demo2',
+  build: {
+    outDir: '../dist-demo',
+    emptyOutDir: true
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src')
-    }
-  },
-  build: {
-    lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
-      name: 'Or3Scroll',
-      fileName: 'or3-scroll'
-    },
-    rollupOptions: {
-      external: ['vue'],
-      output: {
-        globals: {
-          vue: 'Vue'
-        }
-      }
     }
   }
 })

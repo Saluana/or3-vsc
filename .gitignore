@@ -119,6 +119,7 @@ out
 
 .nuxt
 dist
+dist-demo
 
 # Gatsby files
 
