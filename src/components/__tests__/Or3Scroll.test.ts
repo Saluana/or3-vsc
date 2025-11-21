@@ -104,6 +104,20 @@ describe('Or3Scroll', () => {
   });
   
   it('exposes measureItems', async () => {
+    const rectSpy = vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      height: 0,
+      width: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON() {
+        return {};
+      }
+    } as any);
+
     const wrapper = mount(Or3Scroll, {
       props: {
         items,
@@ -122,12 +136,9 @@ describe('Or3Scroll', () => {
     
     const heights = await promise;
     expect(heights).toHaveLength(1);
-    // Since we didn't mock getBoundingClientRect, it returns 0 or default estimate?
-    // In JSDOM, getBoundingClientRect returns 0s usually.
-    // Our code: el.getBoundingClientRect().height : props.estimateHeight || 50
-    // If 0, it returns 0.
-    // Wait, `el ? el.getBoundingClientRect().height : ...`
-    // If JSDOM returns 0, it is 0.
+    expect(heights[0]).toBe(50); // Falls back to estimateHeight when DOM reports 0
+
+    rectSpy.mockRestore();
   });
 
   it('compensates prepend with measured heights when loadingHistory', async () => {

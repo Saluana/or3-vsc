@@ -189,7 +189,9 @@ const measureItems = async (items: T[]): Promise<number[]> => {
       // Measure
       const heights = items.map((_, i) => {
         const el = measureRefs.get(i);
-        return el ? el.getBoundingClientRect().height : props.estimateHeight || 50;
+        const measured = el?.getBoundingClientRect().height ?? 0;
+        const fallback = props.estimateHeight ?? 50;
+        return measured > 0 ? measured : fallback;
       });
       
       // Reset
@@ -240,13 +242,17 @@ const scrollToIndex = (index: number, opts: { align?: 'start' | 'center' | 'end'
   if (!container.value || index < 0 || index >= props.items.length) return;
   
   const offset = engine.getOffsetForIndex(index);
-  // TODO: Handle alignment (start is default)
-  // For center/end we need item height. If not measured, use estimate.
-  // But getOffsetForIndex gives top.
-  
-  // Simple implementation for now: scroll to top of item
+  const measuredHeight = itemRefs.get(index)?.getBoundingClientRect().height ?? props.estimateHeight ?? 50;
   const behavior = opts.smooth ? 'smooth' : 'auto';
-  container.value.scrollTo({ top: offset, behavior });
+  let top = offset;
+
+  if (opts.align === 'center') {
+    top = offset - (viewportHeight.value / 2 - measuredHeight / 2);
+  } else if (opts.align === 'end') {
+    top = offset - (viewportHeight.value - measuredHeight);
+  }
+
+  container.value.scrollTo({ top: Math.max(0, top), behavior });
 };
 
 const scrollToItemKey = (key: string | number, opts: { align?: 'start' | 'center' | 'end'; smooth?: boolean } = {}) => {
@@ -257,18 +263,28 @@ const scrollToItemKey = (key: string | number, opts: { align?: 'start' | 'center
 };
 
 const refreshMeasurements = () => {
-  // Manual lever to reclaim memory or fix issues
-  // We reset the engine?
-  // Or just clear refs?
-  // Engine has setCount.
-  // If we want to clear cache, we might need a method on engine.
-  // But engine.setCount(0) then setCount(n) might work but is destructive.
-  // Let's just re-measure visible items?
-  // Requirement says: "doubles as the manual lever for reclaiming memory".
-  // So we should probably reset engine state.
-  // But we need to keep current scroll position?
-  // That's hard if we clear everything.
-  // Maybe just force updateRange?
+  if (!container.value) {
+    updateRange();
+    return;
+  }
+
+  const anchorIndex = startIndex.value;
+  const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
+  const fallback = props.estimateHeight ?? 50;
+
+  itemRefs.forEach((el, idx) => {
+    const measured = el.getBoundingClientRect().height;
+    engine.setHeight(idx, measured > 0 ? measured : fallback);
+  });
+
+  const anchorOffsetAfter = engine.getOffsetForIndex(anchorIndex);
+  const delta = anchorOffsetAfter - anchorOffsetBefore;
+
+  if (delta !== 0) {
+    container.value.scrollTop += delta;
+    scrollTop.value = container.value.scrollTop;
+  }
+
   updateRange();
 };
 const flushUpdates = () => {
@@ -435,9 +451,6 @@ defineExpose({
         aria-hidden="true"
       >
         <slot name="prepend-loading" v-if="loadingHistory" />
-        <!-- We need a way to render specific items for measurement. 
-             The requirement says: "Provide measureItems(items: T[]): Promise<number[]>".
-             So we need a reactive state for items to measure. -->
         <template v-for="(item, i) in itemsToMeasure" :key="i">
            <div :ref="el => setMeasureRef(i, el)">
              <slot :item="item" :index="-1" />
