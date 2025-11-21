@@ -113,9 +113,6 @@ const sendMessage = async () => {
                                 const blocks = parseBlocks(repaired);
                                 messages.value[botMsgIndex].renderedContent = blocks.join('');
                             }
-                            
-                            // Force reactivity update
-                            messages.value = [...messages.value];
                         }
                     } catch (e) {
                         console.warn('Error parsing SSE message', e);
@@ -128,7 +125,6 @@ const sendMessage = async () => {
         if (messages.value[botMsgIndex]) {
             messages.value[botMsgIndex].content += `\n\n*Error: ${e.message}*`;
             messages.value[botMsgIndex].renderedContent = messages.value[botMsgIndex].content;
-            messages.value = [...messages.value];
         }
     } finally {
         isStreaming.value = false;
