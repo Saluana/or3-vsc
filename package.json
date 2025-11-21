@@ -20,6 +20,7 @@
     "dev": "vite demo2 --config vite.config.ts",
     "dev:scroll": "vite demo --config vite.config.ts",
     "build": "vue-tsc && vite build",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "test": "vitest",
     "lint": "eslint src --ext .ts,.vue --ignore-path .gitignore"
   },

@@ -34,6 +34,12 @@ The following changes are required for Replit compatibility:
 
 This configuration ensures the Vite dev server accepts requests from Replit's proxy URLs without blocking them.
 
+- Imported from GitHub and configured for Replit environment
+- Fixed Vite configuration for ESM modules (replaced __dirname with fileURLToPath)
+- Configured Vite dev server to run on 0.0.0.0:5000 with proper HMR settings for Replit
+- Installed @types/node for TypeScript support
+- Set up workflow to run the demo2 chat application
+
 ## Project Architecture
 
 ### Main Components
@@ -76,6 +82,7 @@ bun run dev
 - Vite configured for both library building and demo serving
 - Server runs on 0.0.0.0:5000 for Replit compatibility
 - Allowed hosts configured for `.replit.dev` wildcard
+- HMR configured for WSS protocol on port 443
 
 ## Dependencies
 - **Core**: Vue 3.4+

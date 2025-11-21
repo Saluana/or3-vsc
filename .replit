@@ -1,4 +1,11 @@
 modules = ["bun-1.2"]
+modules = ["nodejs-20", "vue-node-20", "web"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+
 [workflows]
 runButton = "Project"
 
@@ -29,3 +36,11 @@ externalPort = 80
 
 [agent]
 expertMode = true
+[[ports]]
+localPort = 32949
+externalPort = 3000
+
+[deployment]
+deploymentTarget = "static"
+build = ["bun", "run", "build:demo"]
+publicDir = "dist-demo"
