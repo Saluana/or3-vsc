@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import Or3Scroll from '../Or3Scroll.vue';
 import { nextTick } from 'vue';
@@ -52,7 +52,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 40,
           overscan: 100
         },
@@ -79,7 +79,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 40,
           overscan: 0 // No overscan for clearer test
         },
@@ -113,7 +113,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: initialItems,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           maintainBottom: true,
           estimateHeight: 50
         },
@@ -121,10 +121,6 @@ describe('Or3Scroll - Extended Component Tests', () => {
       });
 
       await nextTick();
-      
-      // Mock scrollToBottom to track if it's called
-      const vm = wrapper.vm as any;
-      const scrollToBottomSpy = vi.spyOn(vm, 'scrollToBottom');
       
       // Simulate being at bottom
       const container = wrapper.find('.or3-scroll').element as HTMLElement;
@@ -154,7 +150,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: initialItems,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           maintainBottom: true,
           estimateHeight: 50
         },
@@ -168,8 +164,6 @@ describe('Or3Scroll - Extended Component Tests', () => {
       container.scrollTop = 100; // Clearly not at bottom
       await container.dispatchEvent(new Event('scroll'));
       await nextTick();
-      
-      const scrollTopBeforeAppend = container.scrollTop;
       
       // Append new items
       await wrapper.setProps({ items: [...initialItems, ...items.slice(20, 30)] });
@@ -201,7 +195,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: initialItems,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           loadingHistory: true,
           estimateHeight: 50
         },
@@ -237,7 +231,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: initialItems,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           loadingHistory: false,
           estimateHeight: 50
         },
@@ -285,7 +279,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: smallSet,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body
@@ -314,7 +308,8 @@ describe('Or3Scroll - Extended Component Tests', () => {
       await nextTick();
       
       // Total height should update to measured values
-      const updatedHeight = parseInt(wrapper.find('.or3-scroll-track').element.style.height);
+      const updatedTrack = wrapper.find('.or3-scroll-track').element as HTMLElement;
+      const updatedHeight = parseInt(updatedTrack.style.height);
       expect(updatedHeight).toBeGreaterThan(initialHeight);
       
       rectSpy.mockRestore();
@@ -344,7 +339,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: smallSet,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50,
           maintainBottom: true
         },
@@ -369,7 +364,8 @@ describe('Or3Scroll - Extended Component Tests', () => {
       await nextTick();
       
       // Should handle both shrink and grow without errors
-      const trackHeight = parseInt(wrapper.find('.or3-scroll-track').element.style.height);
+      const track2 = wrapper.find('.or3-scroll-track').element as HTMLElement;
+      const trackHeight = parseInt(track2.style.height);
       expect(trackHeight).toBeGreaterThan(0);
       expect(trackHeight).not.toBe(10 * 50); // Should differ from estimate
       
@@ -381,7 +377,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: items.slice(0, 10),
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body
@@ -418,7 +414,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items,
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body
@@ -451,7 +447,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: items.slice(0, 10),
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body
@@ -474,7 +470,8 @@ describe('Or3Scroll - Extended Component Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
       await nextTick();
       
-      const updatedHeight = parseInt(wrapper.find('.or3-scroll-track').element.style.height);
+      const updatedTrack = wrapper.find('.or3-scroll-track').element as HTMLElement;
+      const updatedHeight = parseInt(updatedTrack.style.height);
       expect(updatedHeight).toBeGreaterThan(initialHeight);
       
       wrapper.unmount();
@@ -486,7 +483,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: items.slice(0, 20),
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body
@@ -509,7 +506,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
       const wrapper = mount(Or3Scroll, {
         props: {
           items: items.slice(0, 20),
-          itemKey: 'id',
+          itemKey: 'id' as any,
           estimateHeight: 50
         },
         attachTo: document.body

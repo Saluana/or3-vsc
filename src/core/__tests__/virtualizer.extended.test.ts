@@ -238,7 +238,6 @@ describe('VirtualizerEngine - Extended Tests', () => {
       
       for (let i = 0; i < sizes.length; i++) {
         const size = sizes[i];
-        const prevSize = i > 0 ? sizes[i - 1] : 0;
         
         engine.setCount(size);
         

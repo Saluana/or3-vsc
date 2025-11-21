@@ -254,7 +254,7 @@ describe('Or3Scroll', () => {
 
     await nextTick();
     // Capture callback for item 0 while it is rendered
-    const resizeCallbackAtIndex0 = observeMock.mock.calls.find(call => {
+    const resizeCallbackAtIndex0 = observeMock.mock.calls.find(() => {
        // We can't easily know which call is which index because observe takes an element.
        // But initial render is 0..9.
        // The calls are likely in order.
