@@ -87,9 +87,11 @@ const visibleItems = computed(() => {
 // Helper to get key
 const getItemKey = (item: T): string | number => {
   if (typeof props.itemKey === 'function') {
-    return (props.itemKey as any)(item);
+    return (props.itemKey as (item: T) => string | number)(item);
   }
-  return (item as any)[props.itemKey];
+
+  const key = props.itemKey as keyof T;
+  return item[key] as unknown as string | number;
 };
 
 // --- Scroll Handling ---
@@ -272,6 +274,7 @@ const refreshMeasurements = () => {
   const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
   const fallback = props.estimateHeight ?? 50;
 
+  // Read-only pass: avoid mixing writes to the DOM in this loop to prevent layout thrash.
   itemRefs.forEach((el, idx) => {
     const measured = el.getBoundingClientRect().height;
     engine.setHeight(idx, measured > 0 ? measured : fallback);
@@ -364,8 +367,16 @@ watch(() => props.items, async (newItems, oldItems) => {
   }
   
   if (newCount > oldCount) {
-    // Check for prepend by locating the old first key in the new list
+    // Fast path: common append/no-op case where head key is unchanged.
     const firstKeyOld = getItemKey(oldItems[0]);
+    const firstKeyNew = getItemKey(newItems[0]);
+    if (firstKeyOld === firstKeyNew) {
+      engine.setCount(newCount);
+      updateRange();
+      return;
+    }
+
+    // Check for prepend by locating the old first key in the new list
     const indexInNew = newItems.findIndex(item => getItemKey(item) === firstKeyOld);
     
     if (indexInNew > 0) {

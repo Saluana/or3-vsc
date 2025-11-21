@@ -206,6 +206,33 @@ describe('Or3Scroll', () => {
     expect(Number(firstRendered.attributes('data-index'))).toBeGreaterThan(0);
   });
 
+  it('keeps tail items rendered when approaching bottom with small overscan', async () => {
+    const tailItems = Array.from({ length: 20 }, (_, i) => ({ id: i, text: `Tail ${i}` }));
+
+    const wrapper = mount(Or3Scroll, {
+      props: {
+        items: tailItems,
+        itemKey: (item: any) => item.id,
+        estimateHeight: 50,
+        overscan: 0,
+        tailCount: 3
+      },
+      attachTo: document.body
+    });
+
+    await nextTick();
+    const container = wrapper.find('.or3-scroll');
+
+    // Scroll near the end so the overscanned window overlaps the tail
+    container.element.scrollTop = 450;
+    await container.trigger('scroll');
+    await nextTick();
+
+    const renderedIndexes = wrapper.findAll('.or3-scroll-item').map(el => Number(el.attributes('data-index')));
+    expect(renderedIndexes).toContain(tailItems.length - 1);
+    expect(Math.min(...renderedIndexes)).toBeLessThanOrEqual(tailItems.length - 3);
+  });
+
   it('defers scroll compensation during user interaction', async () => {
     const originalRaf = window.requestAnimationFrame;
     const originalCancel = window.cancelAnimationFrame;
