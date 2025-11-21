@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import Or3Scroll from '../src/components/Or3Scroll.vue';
 
 interface Message {
@@ -13,8 +13,9 @@ const items = ref<Message[]>([]);
 const scroller = ref<any>(null);
 const isStreaming = ref(false);
 const isStreamingText = ref(false);
-const streamTextInterval = ref<any>(null);
+const streamTextInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const log = ref<string[]>([]);
+let streamTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Generate initial items
 const generateItems = (count: number, startId = 0) => {
@@ -82,7 +83,12 @@ const streamLoop = async () => {
     if (isStreaming.value) {
       // Wait before next message
       console.log('streamLoop: Scheduling next message in 500ms');
-      setTimeout(streamLoop, 500);
+      if (streamTimeout != null) {
+        clearTimeout(streamTimeout);
+      }
+      streamTimeout = setTimeout(() => {
+        streamLoop();
+      }, 500);
     }
   } catch (e: any) {
     console.error('streamLoop: Error', e);
@@ -97,6 +103,10 @@ const toggleStream = () => {
     isStreaming.value = false;
     addLog('Streaming stopped');
     console.log('toggleStream: Set isStreaming to false');
+    if (streamTimeout != null) {
+      clearTimeout(streamTimeout);
+      streamTimeout = null;
+    }
   } else {
     isStreaming.value = true;
     addLog('Streaming started');
@@ -148,6 +158,22 @@ const toggleTextStream = () => {
     }
   }
 };
+
+onUnmounted(() => {
+  // Stop ongoing loops so timeouts/intervals don't touch a destroyed component
+  isStreaming.value = false;
+  isStreamingText.value = false;
+
+  if (streamTimeout != null) {
+    clearTimeout(streamTimeout);
+    streamTimeout = null;
+  }
+
+  if (streamTextInterval.value != null) {
+    clearInterval(streamTextInterval.value);
+    streamTextInterval.value = null;
+  }
+});
 
 const prependItems = async () => {
   addLog('Prepending 20 items...');

@@ -58,6 +58,7 @@ const scrollHeight = ref(0);
 const isUserScrolling = ref(false);
 const isAtBottom = ref(true); // Default to true? Or derive?
 let deferredScrollDelta = 0;
+let isDestroyed = false;
 
 // Engine
 const engine = new VirtualizerEngine({
@@ -177,22 +178,36 @@ const updateRange = () => {
 const itemsToMeasure = shallowRef<T[]>([]);
 const measureRefs = new Map<number, HTMLElement>();
 
-const setMeasureRef = (index: number, el: any) => {
-  if (el) measureRefs.set(index, el as HTMLElement);
+const setMeasureRef = (index: number, el: HTMLElement | null) => {
+  if (el) {
+    // Track mounted measurement node
+    measureRefs.set(index, el);
+  } else {
+    // Drop reference on unmount to avoid stale nodes
+    measureRefs.delete(index);
+  }
 };
 
 const measureItems = async (items: T[]): Promise<number[]> => {
+  const fallback = props.estimateHeight ?? 50;
+  if (isDestroyed) return items.map(() => fallback);
+
   itemsToMeasure.value = items;
   measureRefs.clear();
   
   return new Promise<number[]>((resolve) => {
     // Wait for render
     nextTick(() => {
+      if (isDestroyed) {
+        itemsToMeasure.value = [];
+        resolve(items.map(() => fallback));
+        return;
+      }
+
       // Measure
       const heights = items.map((_, i) => {
         const el = measureRefs.get(i);
         const measured = el?.getBoundingClientRect().height ?? 0;
-        const fallback = props.estimateHeight ?? 50;
         return measured > 0 ? measured : fallback;
       });
       
@@ -341,6 +356,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  isDestroyed = true;
+
   if (updateRaf) cancelAnimationFrame(updateRaf);
   if (userScrollEndTimeout) {
     clearTimeout(userScrollEndTimeout);
@@ -387,6 +404,8 @@ watch(() => props.items, async (newItems, oldItems) => {
         const heights = props.loadingHistory
           ? await measureItems(newItems.slice(0, prependCount))
           : new Array(prependCount).fill(NaN);
+
+        if (isDestroyed) return;
         
         engine.bulkInsert(0, heights);
         
