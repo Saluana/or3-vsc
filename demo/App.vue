@@ -118,7 +118,9 @@ const toggleStream = () => {
 const toggleTextStream = () => {
   console.log('toggleTextStream called. Current state:', isStreamingText.value);
   if (isStreamingText.value) {
-    clearInterval(streamTextInterval.value);
+    if (streamTextInterval.value !== null) {
+      clearInterval(streamTextInterval.value);
+    }
     isStreamingText.value = false;
     addLog('Text streaming stopped');
     console.log('toggleTextStream: Stopped');
@@ -144,7 +146,9 @@ const toggleTextStream = () => {
       streamTextInterval.value = setInterval(() => {
         if (!isStreamingText.value) {
             console.log('toggleTextStream: Interval check - stopped');
-            clearInterval(streamTextInterval.value);
+            if (streamTextInterval.value !== null) {
+              clearInterval(streamTextInterval.value);
+            }
             return;
         }
         const chunk = " " + Math.random().toString(36).substring(7);

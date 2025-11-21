@@ -483,7 +483,7 @@ defineExpose({
       >
         <slot name="prepend-loading" v-if="loadingHistory" />
         <template v-for="(item, i) in itemsToMeasure" :key="i">
-           <div :ref="el => setMeasureRef(i, el)">
+           <div :ref="el => setMeasureRef(i, el as HTMLElement | null)">
              <slot :item="item" :index="-1" />
            </div>
         </template>
