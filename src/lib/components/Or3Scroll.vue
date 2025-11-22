@@ -338,6 +338,19 @@ const flushUpdates = () => {
   updateRaf = null;
   if (pendingUpdates.size === 0) return;
   
+  // Check for user movement BEFORE syncing state
+  let userHasMoved = false;
+  if (container.value) {
+    const liveScrollTop = container.value.scrollTop;
+    // If the live scroll position differs significantly from our last known position,
+    // it means the user has scrolled (and onScroll hasn't processed it yet).
+    if (Math.abs(liveScrollTop - scrollTop.value) > 5) {
+      userHasMoved = true;
+    }
+    // Sync local state
+    scrollTop.value = liveScrollTop;
+  }
+  
   // We need to apply updates and compensate scroll.
   const anchorIndex = startIndex.value;
   const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
@@ -364,8 +377,18 @@ const flushUpdates = () => {
   updateRange();
   
   // If following output, snap to bottom?
-  if (props.maintainBottom && isAtBottom.value && !isUserScrolling.value) {
-     scrollToBottom();
+  if (props.maintainBottom && !isUserScrolling.value && container.value) {
+    const { scrollHeight, scrollTop, clientHeight } = container.value;
+    const bottomThreshold = 20;
+    const isReallyAtBottom = (scrollHeight - (scrollTop + clientHeight)) <= bottomThreshold;
+    
+    // We snap if we are effectively at the bottom, 
+    // OR if we were at the bottom before and the user hasn't moved (auto-scroll for new content)
+    const shouldSnap = isReallyAtBottom || (isAtBottom.value && !userHasMoved);
+
+    if (shouldSnap) {
+       scrollToBottom();
+    }
   }
 };
 
