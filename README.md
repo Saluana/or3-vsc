@@ -8,7 +8,10 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 - **Dynamic Heights**: Handles items with variable and changing heights without jitter.
 - **Prepend Support**: Seamlessly handles loading history (prepending items) while maintaining scroll position.
 - **Hidden Measurement**: Measures items in a hidden pool before rendering to ensure accurate scroll offsets.
-- **Tail Rendering**: Optimizes rendering for the "tail" of the chat to prevent flickering during rapid updates.
+- **Optimized Tail Rendering**: Smart tail region handling with `maxWindow` constraint prevents excessive DOM nodes while keeping recent messages always rendered.
+- **Asymmetric Overscan**: Automatically uses more overscan above the viewport when at bottom for smoother upward scrolling.
+- **Viewport Resize Handling**: Gracefully handles container height changes (e.g., mobile keyboards) with `ResizeObserver` integration.
+- **Jump-to-Message**: Built-in `useScrollJump` composable for ID-based navigation with partial history loading support.
 
 ## Installation
 
@@ -112,6 +115,38 @@ const jumpToMessage = (id: number) => {
 </template>
 ```
 
+## Jump to Message with History Loading
+
+For "jump to message" functionality with partial history loading, use the `useScrollJump` composable:
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue';
+import { Or3Scroll, useScrollJump } from 'or3-scroll';
+
+const messages = ref([...]);
+const scrollerRef = ref<InstanceType<typeof Or3Scroll> | null>(null);
+
+// Setup jump-to-message with history loading
+const { jumpTo } = useScrollJump({
+  scrollerRef,
+  items: messages,
+  getItemId: (msg) => msg.id,
+  loadHistoryUntil: async (targetId, direction) => {
+    // Load messages until targetId is found
+    while (!messages.value.find(m => m.id === targetId)) {
+      const olderMessages = await fetchOlderMessages();
+      if (olderMessages.length === 0) break;
+      messages.value = [...olderMessages, ...messages.value];
+    }
+  }
+});
+
+// Later: jump to a message that might not be loaded yet
+jumpTo('message-123', { align: 'center' });
+</script>
+```
+
 ## API Reference
 
 ### Props
@@ -121,10 +156,10 @@ const jumpToMessage = (id: number) => {
 | `items` | `any[]` | `[]` | The array of data items to render. |
 | `itemKey` | `string` | `'id'` | The property name to use as a unique key for each item. |
 | `estimateHeight` | `number` | `50` | Estimated height of an item in pixels. Used for initial calculations. |
-| `overscan` | `number` | `200` | Extra buffer in pixels to render above/below the visible viewport. |
+| `overscan` | `number` | `200` | Extra buffer in pixels to render above/below viewport. Automatically becomes asymmetric (2x above, 0.5x below) when at bottom. |
 | `maintainBottom` | `boolean` | `true` | Whether to keep the scroll position pinned to the bottom when new items are added. |
 | `loadingHistory` | `boolean` | `false` | Whether history is currently loading (affects prepend behavior). |
-| `tailCount` | `number` | `0` | Number of items at the bottom to always keep rendered/measured. |
+| `tailCount` | `number` | `0` | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance. |
 
 ### Events
 
@@ -173,11 +208,17 @@ For AI chat interfaces where the last message grows in real-time:
 2. When the AI response updates, update the last item in your `items` array (immutably or deeply reactive).
 3. The scroller will keep the bottom in view as the content expands.
 
+## Performance Tips
+
+- **Tail Count**: Set `tailCount` to the number of recent messages you want always rendered (e.g., 10-20). This prevents flickering during rapid updates while keeping total DOM nodes low.
+- **Asymmetric Overscan**: The component automatically uses more overscan above when at bottom. This means smoother scrolling upward while minimizing unnecessary nodes below.
+- **Viewport Resize**: The component automatically handles container height changes via `ResizeObserver`. On mobile, this means smooth behavior when the keyboard opens/closes.
+
 ## Caveats / Gotchas
 
 - **Fixed Height Container**: The parent container of `<Or3Scroll>` **must** have a fixed height (e.g., `height: 100vh` or `height: 500px`) and `overflow: hidden` (the component handles the scrolling internally).
-- **Mobile Keyboards**: On mobile, when the keyboard opens, the viewport height changes. Ensure your layout handles this (e.g., using `interactive-widget=resizes-content` in viewport meta or listening to resize events).
 - **Images**: If items contain images, their height might change after loading. It's best to define image dimensions explicitly or use the `refreshMeasurements` method after images load if you see layout shifts.
+- **ResizeObserver**: The component uses `ResizeObserver` for viewport height tracking. This is supported in all modern browsers but not in test environments like JSDOM by default.
 
 ## Troubleshooting
 

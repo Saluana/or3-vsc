@@ -3,14 +3,15 @@ import { VirtualizerEngine } from '../virtualizer';
 
 describe('VirtualizerEngine - Extended Tests', () => {
   let engine: VirtualizerEngine;
-  const config = {
+  const baseConfig = {
     estimateHeight: 50,
-    overscanPx: 100,
+    overscanTop: 100,
+    overscanBottom: 100,
     tailCount: 0
   };
 
   beforeEach(() => {
-    engine = new VirtualizerEngine(config);
+    engine = new VirtualizerEngine(baseConfig);
   });
 
   describe('1.1 Basic range computation', () => {
@@ -439,27 +440,27 @@ describe('VirtualizerEngine - Extended Tests', () => {
   });
   describe('1.7 Tail behavior', () => {
     it('should handle tailCount near 0', () => {
-      const engine = new VirtualizerEngine({ ...config, tailCount: 0 });
-      engine.setCount(100);
+      const e1 = new VirtualizerEngine({ ...baseConfig, tailCount: 1 });
+      e1.setCount(100);
       
       // Scroll to bottom
-      const range = engine.computeRange(4500, 500);
+      const range = e1.computeRange(4500, 500);
       expect(range.endIndex).toBe(99);
     });
 
     it('should handle tailCount equal to list size', () => {
-      const engine = new VirtualizerEngine({ ...config, tailCount: 10 });
-      engine.setCount(10);
+      const e2 = new VirtualizerEngine({ ...baseConfig, tailCount: 10 });
+      e2.setCount(10);
       
-      const range = engine.computeRange(0, 500);
+      const range = e2.computeRange(0, 500);
       expect(range.endIndex).toBe(9);
     });
 
     it('should handle tailCount larger than list size', () => {
-      const engine = new VirtualizerEngine({ ...config, tailCount: 20 });
-      engine.setCount(10);
+      const e3 = new VirtualizerEngine({ ...baseConfig, tailCount: 50 });
+      e3.setCount(10);
       
-      const range = engine.computeRange(0, 500);
+      const range = e3.computeRange(0, 500);
       expect(range.endIndex).toBe(9);
     });
   });

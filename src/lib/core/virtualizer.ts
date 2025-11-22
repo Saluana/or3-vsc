@@ -4,8 +4,10 @@ export type Index = number;
 
 export interface VirtualizerConfig {
   estimateHeight: number; // px
-  overscanPx: number; // px
+  overscanTop: number; // px
+  overscanBottom: number; // px
   tailCount: number; // ensure last N items always in range
+  maxWindow?: number; // max items to render in tail mode
 }
 
 export interface RangeResult {
@@ -137,8 +139,8 @@ export class VirtualizerEngine {
     const totalHeight = this.getTotalHeight();
     
     // Handle overscan
-    const visibleStart = Math.max(0, scrollTop - this.config.overscanPx);
-    const visibleEnd = Math.min(totalHeight, scrollTop + viewportHeight + this.config.overscanPx);
+    const visibleStart = Math.max(0, scrollTop - this.config.overscanTop);
+    const visibleEnd = Math.min(totalHeight, scrollTop + viewportHeight + this.config.overscanBottom);
 
     let startIndex = this.findIndexForOffset(visibleStart);
     let endIndex = this.findIndexForOffset(visibleEnd);
@@ -150,8 +152,24 @@ export class VirtualizerEngine {
 
       // Only extend the range once the overscanned window overlaps the tail
       if (visibleEnd >= tailStartOffset) {
-        startIndex = Math.min(startIndex, tailStartIndex);
-        endIndex = Math.max(endIndex, this.count - 1);
+        // We are in or near the tail. Force the range to include tailStart..total.
+        // But respect maxWindow to avoid exploding the range.
+        
+        // 1. Ensure we include the tail
+        let newEnd = this.count - 1;
+        let newStart = Math.min(startIndex, tailStartIndex);
+
+        // 2. Apply maxWindow constraint
+        const maxWindow = this.config.maxWindow ?? Infinity;
+        const currentWindowSize = newEnd - newStart + 1;
+        
+        if (currentWindowSize > maxWindow) {
+           // If the window is too big, we sacrifice the top part to keep the tail
+           newStart = Math.max(0, newEnd - maxWindow + 1);
+        }
+
+        startIndex = newStart;
+        endIndex = newEnd;
       }
     }
 

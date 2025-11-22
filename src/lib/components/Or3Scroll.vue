@@ -60,11 +60,13 @@ const isAtBottom = ref(true); // Default to true? Or derive?
 let deferredScrollDelta = 0;
 let isDestroyed = false;
 
-// Engine
+// Engine - will be initialized with dynamic overscan values
 const engine = new VirtualizerEngine({
   estimateHeight: props.estimateHeight,
-  overscanPx: props.overscan,
-  tailCount: props.tailCount
+  overscanTop: props.overscan,
+  overscanBottom: props.overscan,
+  tailCount: props.tailCount,
+  maxWindow: undefined // computed dynamically
 });
 
 // Virtual Range
@@ -167,11 +169,38 @@ const onUserScrollEnd = () => {
 const updateRange = () => {
   if (!container.value) return;
   
+  // Compute dynamic overscan values based on position
+  const { overscanTop, overscanBottom, maxWindow } = getOverscanConfig();
+  
+  // Update engine config
+  engine['config'].overscanTop = overscanTop;
+  engine['config'].overscanBottom = overscanBottom;
+  engine['config'].maxWindow = maxWindow;
+  
   const range = engine.computeRange(scrollTop.value, viewportHeight.value);
   startIndex.value = range.startIndex;
   endIndex.value = range.endIndex;
   offsetY.value = range.offsetY;
   totalHeight.value = range.totalHeight;
+};
+
+const getOverscanConfig = () => {
+  const base = props.overscan ?? 200; // px
+  const vh = viewportHeight.value;
+  
+  // Compute maxWindow: ~2x viewport height worth of items
+  const estimatedItemsPerScreen = vh / (props.estimateHeight || 50);
+  const maxWindow = Math.ceil(estimatedItemsPerScreen * 2);
+  
+  // Asymmetric overscan: when at bottom, prefer more overscan above
+  const topMultiplier = isAtBottom.value ? 2.0 : 1.0;
+  const bottomMultiplier = isAtBottom.value ? 0.5 : 1.0;
+  
+  return {
+    overscanTop: base * topMultiplier,
+    overscanBottom: base * bottomMultiplier,
+    maxWindow
+  };
 };
 
 // --- Hidden Measurement ---
@@ -347,10 +376,44 @@ const queueUpdate = (index: number, height: number) => {
   }
 };
 
+// --- Viewport Resize Observer ---
+let containerResizeObserver: ResizeObserver | null = null;
+
+const onViewportResize = (newHeight: number) => {
+  if (!container.value) return;
+  
+  const oldHeight = viewportHeight.value;
+  viewportHeight.value = newHeight;
+  
+  if (oldHeight === newHeight) return;
+  
+  // If at bottom, maintain bottom position
+  if (isAtBottom.value && !isUserScrolling.value) {
+    const totalHeight = engine.getTotalHeight();
+    container.value.scrollTop = Math.max(0, totalHeight - newHeight);
+    updateRange();
+  } else {
+    // Neutral anchor: try to keep the same top item visible
+    // The current scrollTop should keep the same content visible
+    updateRange();
+  }
+};
+
 // --- Lifecycle ---
 onMounted(() => {
   if (container.value) {
     viewportHeight.value = container.value.clientHeight;
+    
+    // Setup viewport resize observer (if available, e.g. not in test environment)
+    if (typeof ResizeObserver !== 'undefined') {
+      containerResizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const newHeight = entry.contentRect.height;
+          onViewportResize(newHeight);
+        }
+      });
+      containerResizeObserver.observe(container.value);
+    }
     
     // --- Guardrails ---
     if (import.meta.env.DEV) {
@@ -395,6 +458,8 @@ onUnmounted(() => {
     clearTimeout(userScrollEndTimeout);
     userScrollEndTimeout = null;
   }
+  containerResizeObserver?.disconnect();
+  containerResizeObserver = null;
   itemRefs.forEach((el) => resizeObserverManager.unobserve(el));
   itemRefs.clear();
 });

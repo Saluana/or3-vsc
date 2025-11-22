@@ -5,7 +5,8 @@ describe('VirtualizerEngine', () => {
   let engine: VirtualizerEngine;
   const config = {
     estimateHeight: 50,
-    overscanPx: 100,
+    overscanTop: 100,
+    overscanBottom: 100,
     tailCount: 0
   };
 
@@ -85,7 +86,13 @@ describe('VirtualizerEngine', () => {
   });
   
   it('should respect tailCount', () => {
-    const tailEngine = new VirtualizerEngine({ ...config, tailCount: 1 });
+    const tailEngine = new VirtualizerEngine({ 
+      estimateHeight: 50,
+      overscanTop: 100,
+      overscanBottom: 100,
+      tailCount: 10,
+      maxWindow: 30
+    });
     tailEngine.setCount(100);
 
     // Viewport at top should not render the entire list

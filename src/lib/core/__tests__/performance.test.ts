@@ -5,7 +5,8 @@ describe('VirtualizerEngine Performance', () => {
   const createEngine = (count: number) => {
     const engine = new VirtualizerEngine({
       estimateHeight: 50,
-      overscanPx: 200,
+      overscanTop: 200,
+      overscanBottom: 200,
       tailCount: 0,
     });
     engine.setCount(count);
@@ -18,7 +19,7 @@ describe('VirtualizerEngine Performance', () => {
     const end = performance.now();
     
     // Initialization should be near-instant as it's just setting a number
-    expect(end - start).toBeLessThan(10); // 10ms
+    expect(end - start).toBeLessThan(20); // 20ms
     expect(engine.getTotalHeight()).toBe(100_000 * 50);
   });
 

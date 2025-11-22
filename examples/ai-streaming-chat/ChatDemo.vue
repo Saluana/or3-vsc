@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue';
+import { ref, nextTick, watch, computed } from 'vue';
 import Or3Scroll from '../../src/lib/components/Or3Scroll.vue';
+import { useScrollJump } from '../../src/lib/composables/useScrollJump';
 import { StreamMarkdown, parseBlocks, parseIncompleteMarkdown } from 'streamdown-vue';
 
 interface Message {
@@ -23,12 +24,63 @@ const messages = ref<Message[]>([
 const isStreaming = ref(false);
 const scroller = ref<any>(null);
 
+// Jump-to-ID state
+const jumpToId = ref('');
+const showDebugPanel = ref(true);
+
+// Setup jump functionality
+const { jumpTo } = useScrollJump({
+    scrollerRef: scroller,
+    items: messages,
+    getItemId: (msg) => msg.id,
+    loadHistoryUntil: async (id) => {
+        // In a real app, this would fetch older messages
+        console.log('Would load history until:', id);
+        // For demo purposes, we already have all messages
+    }
+});
+
+// Debug info
+const debugInfo = computed(() => {
+    if (!scroller.value) return { atBottom: false, scrollTop: 0, total: 0, visible: 0 };
+    return {
+        atBottom: scroller.value.isAtBottom?.value ?? false,
+        scrollTop: Math.round(scroller.value.$el?.scrollTop ?? 0),
+        scrollHeight: Math.round(scroller.value.$el?.scrollHeight ?? 0),
+        clientHeight: Math.round(scroller.value.$el?.clientHeight ?? 0),
+        total: messages.value.length,
+        // Count visible DOM nodes (rough estimate)
+        visibleNodes: scroller.value.$el?.querySelectorAll('.message-wrapper').length ?? 0
+    };
+});
+
 // Auto-save API key whenever it changes
 watch(apiKey, (newVal) => {
     localStorage.setItem('openrouter_key', newVal);
 });
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
+
+const handleJumpToId = () => {
+    if (!jumpToId.value.trim()) return;
+    jumpTo(jumpToId.value.trim(), { align: 'start' });
+    jumpToId.value = '';
+};
+
+const addDummyMessages = (count: number = 10) => {
+    const newMessages: Message[] = [];
+    for (let i = 0; i < count; i++) {
+        const id = generateId();
+        newMessages.push({
+            id,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `Dummy message ${i + 1} (ID: ${id})`,
+            renderedContent: `Dummy message ${i + 1} (ID: ${id})`
+        });
+    }
+    messages.value = [...messages.value, ...newMessages];
+    nextTick(() => scroller.value?.scrollToBottom());
+};
 
 const sendMessage = async () => {
     if (!input.value.trim() || !apiKey.value || isStreaming.value) return;
@@ -156,6 +208,52 @@ const sendMessage = async () => {
       </form>
     </div>
 
+    <!-- Debug Panel -->
+    <div v-if="showDebugPanel" class="debug-panel">
+      <button @click="showDebugPanel = false" class="debug-toggle">Hide Debug</button>
+      <div class="debug-grid">
+        <div class="debug-item">
+          <span class="debug-label">At Bottom:</span>
+          <span class="debug-value" :class="{ 'at-bottom': debugInfo.atBottom }">
+            {{ debugInfo.atBottom ? '✓' : '✗' }}
+          </span>
+        </div>
+        <div class="debug-item">
+          <span class="debug-label">Scroll:</span>
+          <span class="debug-value">{{ debugInfo.scrollTop }}px / {{ debugInfo.scrollHeight }}px</span>
+        </div>
+        <div class="debug-item">
+          <span class="debug-label">Viewport:</span>
+          <span class="debug-value">{{ debugInfo.clientHeight }}px</span>
+        </div>
+        <div class="debug-item">
+          <span class="debug-label">Messages:</span>
+          <span class="debug-value">{{ debugInfo.total }}</span>
+        </div>
+        <div class="debug-item">
+          <span class="debug-label">DOM Nodes:</span>
+          <span class="debug-value highlight">{{ debugInfo.visibleNodes }}</span>
+        </div>
+      </div>
+      
+      <div class="debug-controls">
+        <button @click="addDummyMessages(10)" class="debug-btn">Add 10 Messages</button>
+        <button @click="addDummyMessages(50)" class="debug-btn">Add 50 Messages</button>
+        <button @click="scroller?.scrollToBottom()" class="debug-btn">Scroll to Bottom</button>
+      </div>
+      
+      <div class="jump-control">
+        <input 
+          v-model="jumpToId" 
+          @keydown.enter="handleJumpToId"
+          placeholder="Enter message ID to jump..." 
+          class="jump-input"
+        />
+        <button @click="handleJumpToId" class="jump-btn">Jump</button>
+      </div>
+    </div>
+    <button v-else @click="showDebugPanel = true" class="debug-toggle-mini">Show Debug</button>
+
     <div class="messages-area">
         <Or3Scroll
             ref="scroller"
@@ -171,6 +269,9 @@ const sendMessage = async () => {
                         {{ item.role === 'user' ? 'You' : 'AI' }}
                     </div>
                     <div class="message-bubble">
+                        <div class="message-header">
+                          <span class="message-id" @click="jumpToId = item.id">ID: {{ item.id }}</span>
+                        </div>
                         <StreamMarkdown 
                             v-if="item.role === 'assistant'"
                             :content="item.renderedContent || item.content" 
@@ -434,5 +535,156 @@ textarea {
     background: #3f3f46;
     color: #71717a;
     cursor: not-allowed;
+}
+
+/* Debug Panel */
+.debug-panel {
+    background: #18181b;
+    border-bottom: 1px solid #27272a;
+    padding: 1rem 1.5rem;
+}
+
+.debug-toggle, .debug-toggle-mini {
+    background: #27272a;
+    color: #a1a1aa;
+    border: 1px solid #3f3f46;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    margin-bottom: 0.75rem;
+    transition: all 0.2s;
+}
+
+.debug-toggle-mini {
+    position: absolute;
+    top: 5rem;
+    right: 1rem;
+    z-index: 10;
+}
+
+.debug-toggle:hover, .debug-toggle-mini:hover {
+    background: #3f3f46;
+    border-color: #6366f1;
+}
+
+.debug-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.debug-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #27272a;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+}
+
+.debug-label {
+    color: #a1a1aa;
+    font-weight: 500;
+}
+
+.debug-value {
+    color: #e4e4e7;
+    font-weight: 600;
+    font-family: ui-monospace, monospace;
+}
+
+.debug-value.highlight {
+    color: #6366f1;
+}
+
+.debug-value.at-bottom {
+    color: #22c55e;
+}
+
+.debug-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.debug-btn {
+    background: #27272a;
+    color: #e4e4e7;
+    border: 1px solid #3f3f46;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.debug-btn:hover {
+    background: #3f3f46;
+    border-color: #6366f1;
+}
+
+.jump-control {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.jump-input {
+    flex: 1;
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    color: #e4e4e7;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-family: ui-monospace, monospace;
+}
+
+.jump-input:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+
+.jump-btn {
+    background: #6366f1;
+    color: white;
+    border: none;
+    padding: 0.4rem 1rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-weight: 600;
+}
+
+.jump-btn:hover {
+    background: #4f46e5;
+}
+
+/* Message ID Badge */
+.message-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.message-id {
+    font-size: 0.7rem;
+    background: #27272a;
+    color: #71717a;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: all;
+}
+
+.message-id:hover {
+    background: #3f3f46;
+    color: #a1a1aa;
 }
 </style>
