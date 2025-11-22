@@ -153,6 +153,7 @@ export class FenwickTree {
    * Get total sum of all elements.
    */
   total(): number {
+    if (this.capacity === 0) return 0;
     return this.query(this.capacity - 1);
   }
 }

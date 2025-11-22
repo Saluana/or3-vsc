@@ -25,6 +25,22 @@ class ResizeObserverManager {
     this.callbacks.delete(element);
     this.ro.unobserve(element);
   }
+
+  /**
+   * Disconnects the observer and clears all callbacks.
+   * Should only be called during testing or hot module reload.
+   */
+  disconnect() {
+    this.ro.disconnect();
+    this.callbacks.clear();
+  }
 }
 
 export const resizeObserverManager = new ResizeObserverManager();
+
+// Support hot module reload in development
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    resizeObserverManager.disconnect();
+  });
+}

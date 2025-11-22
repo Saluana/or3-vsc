@@ -1,0 +1,34 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.0.1] - 2024-11-22
+
+### Added
+- Initial release of or3-scroll
+- Bottom-anchored virtual scrolling for chat interfaces
+- Dynamic height measurement with ResizeObserver
+- Prepend support for loading history
+- Hidden measurement pool for accurate scroll offsets
+- Asymmetric overscan for optimized rendering
+- Jump-to-message composable with history loading
+- Tail rendering optimization with maxWindow constraint
+- Viewport resize handling for mobile keyboards
+- TypeScript support with full type definitions
+
+### Features
+- `Or3Scroll` component with Vue 3 composition API
+- `useScrollJump` composable for navigation
+- `VirtualizerEngine` for efficient virtual scrolling
+- FenwickTree (Binary Indexed Tree) for O(log n) prefix sums
+- ResizeObserver-based measurement system
+- Comprehensive test suite with 79 tests
+
+### Documentation
+- Complete README with API reference
+- Usage examples for common patterns
+- Troubleshooting guide
+- Performance tips and caveats

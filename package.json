@@ -2,10 +2,13 @@
   "name": "or3-scroll",
   "version": "0.0.1",
   "description": "A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-anchored layouts, streaming content, and dynamic item heights.",
+  "license": "MIT",
   "type": "module",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "main": "./dist/or3-scroll.umd.cjs",
   "module": "./dist/or3-scroll.js",
