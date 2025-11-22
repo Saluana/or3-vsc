@@ -156,7 +156,7 @@ export class VirtualizerEngine {
         // But respect maxWindow to avoid exploding the range.
         
         // 1. Ensure we include the tail
-        let newEnd = this.count - 1;
+        const newEnd = this.count - 1;
         let newStart = Math.min(startIndex, tailStartIndex);
 
         // 2. Apply maxWindow constraint
