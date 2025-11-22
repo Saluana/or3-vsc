@@ -220,6 +220,26 @@ For AI chat interfaces where the last message grows in real-time:
 - **Images**: If items contain images, their height might change after loading. It's best to define image dimensions explicitly or use the `refreshMeasurements` method after images load if you see layout shifts.
 - **ResizeObserver**: The component uses `ResizeObserver` for viewport height tracking. This is supported in all modern browsers but not in test environments like JSDOM by default.
 
+## Security Considerations
+
+**⚠️ Important**: This component renders user-provided content through Vue slots. Always sanitize and validate user-generated content before passing it to the component to prevent XSS (Cross-Site Scripting) attacks. The component itself does not perform any sanitization.
+
+```vue
+<!-- ❌ BAD: Rendering unsanitized user input -->
+<Or3Scroll :items="messages">
+  <template #default="{ item }">
+    <div v-html="item.userContent"></div> <!-- Dangerous! -->
+  </template>
+</Or3Scroll>
+
+<!-- ✅ GOOD: Sanitize user input or use text interpolation -->
+<Or3Scroll :items="messages">
+  <template #default="{ item }">
+    <div>{{ item.userContent }}</div> <!-- Safe text interpolation -->
+  </template>
+</Or3Scroll>
+```
+
 ## Troubleshooting
 
 ### Warnings
