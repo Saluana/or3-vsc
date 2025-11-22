@@ -72,6 +72,46 @@ const onReachTop = () => {
 </style>
 ```
 
+## Using Methods
+
+To use exposed methods like `scrollToBottom` or `scrollToItemKey`, attach a `ref` to the component.
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue';
+import { Or3Scroll } from 'or3-scroll';
+
+// 1. Create a ref typed with the component instance
+const scrollRef = ref<InstanceType<typeof Or3Scroll> | null>(null);
+
+const jumpToBottom = () => {
+  // 2. Call methods on the ref
+  scrollRef.value?.scrollToBottom();
+};
+
+const jumpToMessage = (id: number) => {
+  scrollRef.value?.scrollToItemKey(id, { smooth: true, align: 'center' });
+};
+</script>
+
+<template>
+  <div class="controls">
+    <button @click="jumpToBottom">Go to Bottom</button>
+    <button @click="jumpToMessage(50)">Jump to #50</button>
+  </div>
+
+  <div class="chat-container">
+    <Or3Scroll
+      ref="scrollRef"
+      :items="messages"
+      item-key="id"
+    >
+      <!-- ... -->
+    </Or3Scroll>
+  </div>
+</template>
+```
+
 ## API Reference
 
 ### Props
