@@ -615,9 +615,9 @@ defineExpose({
           :key="getItemKey(item)"
         >
           <div 
+            :ref="setItemRef(startIndex + i)"
             class="or3-scroll-item"
             :data-index="startIndex + i"
-            :ref="setItemRef(startIndex + i)"
           >
             <slot
               :item="item"
