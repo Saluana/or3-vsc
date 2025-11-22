@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue';
-import Or3Scroll from '../src/components/Or3Scroll.vue';
+import Or3Scroll from '../../src/lib/components/Or3Scroll.vue';
 
 interface Message {
   id: number;

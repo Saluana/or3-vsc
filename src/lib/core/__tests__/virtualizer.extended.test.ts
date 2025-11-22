@@ -437,4 +437,46 @@ describe('VirtualizerEngine - Extended Tests', () => {
       expect(avgTime).toBeLessThan(1); // Less than 1ms per computation
     });
   });
+  describe('1.7 Tail behavior', () => {
+    it('should handle tailCount near 0', () => {
+      const engine = new VirtualizerEngine({ ...config, tailCount: 0 });
+      engine.setCount(100);
+      
+      // Scroll to bottom
+      const range = engine.computeRange(4500, 500);
+      expect(range.endIndex).toBe(99);
+    });
+
+    it('should handle tailCount equal to list size', () => {
+      const engine = new VirtualizerEngine({ ...config, tailCount: 10 });
+      engine.setCount(10);
+      
+      const range = engine.computeRange(0, 500);
+      expect(range.endIndex).toBe(9);
+    });
+
+    it('should handle tailCount larger than list size', () => {
+      const engine = new VirtualizerEngine({ ...config, tailCount: 20 });
+      engine.setCount(10);
+      
+      const range = engine.computeRange(0, 500);
+      expect(range.endIndex).toBe(9);
+    });
+  });
+
+  describe('1.8 Bulk prepend under load', () => {
+    it('should maintain consistent offsets during repeated prepends', () => {
+      engine.setCount(200);
+      const initialTotal = engine.getTotalHeight();
+      
+      // Prepend 50 items
+      const newHeights = Array(50).fill(60);
+      engine.bulkInsert(0, newHeights);
+      
+      expect(engine.getTotalHeight()).toBe(initialTotal + 50 * 60);
+      
+      // Check offset of original item 0 (now 50)
+      expect(engine.getOffsetForIndex(50)).toBe(50 * 60);
+    });
+  });
 });

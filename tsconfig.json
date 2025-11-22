@@ -8,6 +8,9 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "types": [
+      "vite/client"
+    ],
     "skipLibCheck": true,
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -25,7 +28,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": [
-        "src/*"
+        "src/lib/*"
       ]
     }
   },
@@ -34,10 +37,10 @@
     "src/**/*.d.ts",
     "src/**/*.tsx",
     "src/**/*.vue",
-    "demo/**/*.ts",
-    "demo/**/*.vue",
-    "demo2/**/*.ts",
-    "demo2/**/*.vue"
+    "examples/basic-chat/**/*.ts",
+    "examples/basic-chat/**/*.vue",
+    "examples/ai-streaming-chat/**/*.ts",
+    "examples/ai-streaming-chat/**/*.vue"
   ],
   "references": [
     {

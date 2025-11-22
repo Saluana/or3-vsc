@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "main": "./dist/or3-scroll.umd.cjs",
   "module": "./dist/or3-scroll.js",
@@ -17,12 +18,13 @@
     "./style.css": "./dist/style.css"
   },
   "scripts": {
-    "dev": "vite demo2 --config vite.config.ts",
-    "dev:scroll": "vite demo --config vite.config.ts",
+    "dev": "vite examples/ai-streaming-chat --config vite.config.ts",
+    "dev:scroll": "vite examples/basic-chat --config vite.config.ts",
     "build": "vue-tsc && vite build",
     "build:demo": "vite build --config vite.demo.config.ts",
     "test": "vitest",
-    "lint": "eslint src --ext .ts,.vue --ignore-path .gitignore"
+    "lint": "eslint src --ext .ts,.vue --ignore-path .gitignore",
+    "prepublishOnly": "npm run build && npm test"
   },
   "peerDependencies": {
     "vue": "^3.4.0"

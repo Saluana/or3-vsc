@@ -9,14 +9,14 @@ const __dirname = dirname(__filename)
 
 export default defineConfig({
   plugins: [vue()],
-  root: 'demo2',
+  root: 'examples/ai-streaming-chat',
   build: {
-    outDir: '../dist-demo',
+    outDir: '../../dist-demo',
     emptyOutDir: true
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(__dirname, './src/lib')
     }
   }
 })

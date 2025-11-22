@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import DemoApp from '../../demo/App.vue';
+import DemoApp from '../../examples/basic-chat/App.vue';
 
 // Mock ResizeObserver Manager
 const { observeMock, unobserveMock } = vi.hoisted(() => ({
@@ -10,7 +10,7 @@ const { observeMock, unobserveMock } = vi.hoisted(() => ({
   unobserveMock: vi.fn()
 }));
 
-vi.mock('../../src/measurement/observer', () => ({
+vi.mock('../../src/lib/measurement/observer', () => ({
   resizeObserverManager: {
     observe: observeMock,
     unobserve: unobserveMock

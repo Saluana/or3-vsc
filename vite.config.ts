@@ -11,18 +11,18 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     host: '0.0.0.0',
-    port: 5000,
+    port: 5173,
     strictPort: true,
     allowedHosts: ['.replit.dev']
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(__dirname, './src/lib')
     }
   },
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: resolve(__dirname, 'src/lib/index.ts'),
       name: 'Or3Scroll',
       fileName: 'or3-scroll'
     },

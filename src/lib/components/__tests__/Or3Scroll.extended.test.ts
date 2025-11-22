@@ -531,4 +531,51 @@ describe('Or3Scroll - Extended Component Tests', () => {
       expect(wrapper.vm).toBeDefined(); // Verify wrapper existed
     });
   });
+  describe('2.7 Delayed resize (images)', () => {
+    it('should adjust scroll position when item height changes after mount', async () => {
+      const wrapper = mount(Or3Scroll, {
+        props: {
+          items: items.slice(0, 10),
+          itemKey: 'id' as any,
+          estimateHeight: 50,
+          maintainBottom: true
+        },
+        attachTo: document.body
+      });
+
+      await nextTick();
+      
+      const container = wrapper.find('.or3-scroll').element as HTMLElement;
+      
+      // Simulate scroll to bottom
+      container.scrollTop = container.scrollHeight;
+      await container.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      
+      const initialScrollTop = container.scrollTop;
+      
+      // Simulate image load resizing item 9
+      const observeCalls = observeMock.mock.calls;
+      const lastItemCallback = observeCalls[observeCalls.length - 1][1];
+      
+      if (lastItemCallback) {
+        // Update scrollHeight mock to reflect growth
+        vi.spyOn(window.HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(5150);
+        
+        lastItemCallback({
+          borderBoxSize: [{ blockSize: 200 }] // Grow from 50 to 200
+        } as unknown as ResizeObserverEntry);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await nextTick();
+      
+      // Should stay at bottom (scroll top increases)
+      // Old top: 4600 (5000 - 400)
+      // New top should be: 4750 (5150 - 400)
+      expect(container.scrollTop).toBeGreaterThan(initialScrollTop);
+      
+      wrapper.unmount();
+    });
+  });
 });

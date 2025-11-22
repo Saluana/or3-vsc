@@ -351,6 +351,38 @@ const queueUpdate = (index: number, height: number) => {
 onMounted(() => {
   if (container.value) {
     viewportHeight.value = container.value.clientHeight;
+    
+    // --- Guardrails ---
+    if (import.meta.env.DEV) {
+      if (viewportHeight.value === 0) {
+        console.warn(
+          '[or3-scroll] Container has 0 height. Please ensure the parent container has a set height or flex constraint.'
+        );
+      }
+      
+      if (props.estimateHeight && props.estimateHeight <= 0) {
+        console.warn(
+          `[or3-scroll] estimateHeight must be positive. Got ${props.estimateHeight}.`
+        );
+      }
+
+      // Check for duplicate keys (dev only, first 100 items to avoid perf hit)
+      if (props.items.length > 0) {
+        const keys = new Set();
+        const sample = props.items.slice(0, 100);
+        for (const item of sample) {
+          const key = getItemKey(item);
+          if (keys.has(key)) {
+            console.warn(
+              `[or3-scroll] Duplicate item key detected: "${key}". Rendering behavior may be unstable.`
+            );
+            break;
+          }
+          keys.add(key);
+        }
+      }
+    }
+    
     updateRange();
   }
 });
@@ -433,11 +465,30 @@ watch(() => props.items, async (newItems, oldItems) => {
 
 
 defineExpose({
+  /**
+   * Scrolls the container to the absolute bottom.
+   */
   scrollToBottom,
+  /**
+   * Scrolls to a specific index.
+   * @param index The index of the item to scroll to.
+   * @param opts Options for alignment and smoothness.
+   */
   scrollToIndex,
+  /**
+   * Scrolls to a specific item by its unique key.
+   * @param key The unique key of the item.
+   * @param opts Options for alignment and smoothness.
+   */
   scrollToItemKey,
+  /**
+   * Forces a remeasurement of all currently rendered items.
+   * Useful if item content changes size without the item itself being replaced.
+   */
   refreshMeasurements,
-  measureItems,
+  /**
+   * Whether the scroller is currently at the bottom (within threshold).
+   */
   isAtBottom,
 });
 </script>
