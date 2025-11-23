@@ -4,6 +4,8 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 
 ## Features
 
+-   **Smart Auto-Scroll**: Locks to the bottom with a tight, configurable threshold (default 10px), allowing users to easily "break free" to read history without fighting the scroller.
+-   **Jank-Free Updates**: Uses microtask-based scroll correction to handle layout shifts within the same frame, preventing visual glitches during rapid content updates.
 -   **Bottom Anchoring**: Keeps the scroll position pinned to the bottom as new content arrives (chat style).
 -   **Dynamic Heights**: Handles items with variable and changing heights without jitter.
 -   **Prepend Support**: Seamlessly handles loading history (prepending items) while maintaining scroll position.
@@ -11,6 +13,23 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 -   **Optimized Tail Rendering**: Smart tail region handling with `maxWindow` constraint prevents excessive DOM nodes while keeping recent messages always rendered.
 -   **Viewport Resize Handling**: Gracefully handles container height changes (e.g., mobile keyboards) with `ResizeObserver` integration.
 -   **Jump-to-Message**: Built-in `useScrollJump` composable for ID-based navigation with partial history loading support.
+
+## Scroll Physics & Auto-Scroll Behavior
+
+`or3-scroll` implements a sophisticated auto-scroll logic designed specifically for high-frequency chat applications:
+
+1.  **Decoupled Locking**:
+    *   **UI Status**: The `isAtBottom` property (used for "Scroll to Bottom" buttons) uses a generous `bottomThreshold` (default 3px).
+    *   **Physics Lock**: The auto-scroll "lock" uses a directional logic:
+        *   **Breaking Free**: When scrolling **UP** (away from bottom), it uses a tight `autoscrollThreshold` (default **10px**). This allows you to easily escape the lock.
+        *   **Re-Locking**: When scrolling **DOWN** (towards bottom), it uses the generous `bottomThreshold` (default **3px**). This makes it easy to re-engage the lock without hitting the absolute bottom pixel.
+
+2.  **Sticky Anchor**:
+    *   If you are locked to the bottom, the scroller stays locked even if a large message arrives and pushes you further away visually. It will snap you back to the new bottom automatically.
+    *   The lock is **only** released when *you* actively scroll up.
+
+3.  **Microtask Correction**:
+    *   Layout shifts (e.g., images loading, messages expanding) are corrected within the same animation frame using microtasks. This eliminates the 1-frame visual "jump" or "shake" often seen in virtual scrollers during rapid updates.
 
 ## Installation
 
@@ -159,17 +178,19 @@ jumpTo('message-123', { align: 'center' });
 
 ### Props
 
-| Prop             | Type      | Default | Description                                                                                                                 |
-| ---------------- | --------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `items`          | `any[]`   | `[]`    | The array of data items to render.                                                                                          |
-| `itemKey`        | `string`  | `'id'`  | The property name to use as a unique key for each item.                                                                     |
-| `estimateHeight` | `number`  | `50`    | Estimated height of an item in pixels. Used for initial calculations.                                                       |
-| `overscan`       | `number`  | `200`   | Extra buffer in pixels to render above/below viewport.                                                                      |
-| `maintainBottom` | `boolean` | `true`  | Whether to keep the scroll position pinned to the bottom when new items are added.                                          |
-| `loadingHistory` | `boolean` | `false` | Whether history is currently loading (affects prepend behavior).                                                            |
-| `tailCount`      | `number`  | `0`     | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance. |
-| `paddingBottom`  | `number`  | `0`     | Extra padding at the bottom of the scrollable area in pixels. Useful for clearing floating elements like input bars.        |
-| `paddingTop`     | `number`  | `0`     | Extra padding at the top of the scrollable area in pixels.                                                                  |
+| Prop              | Type      | Default | Description                                                                                                                 |
+| ----------------- | --------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `items`           | `any[]`   | `[]`    | The array of data items to render.                                                                                          |
+| `itemKey`         | `string`  | `'id'`  | The property name to use as a unique key for each item.                                                                     |
+| `estimateHeight`  | `number`  | `50`    | Estimated height of an item in pixels. Used for initial calculations.                                                       |
+| `overscan`        | `number`  | `200`   | Extra buffer in pixels to render above/below viewport.                                                                      |
+| `maintainBottom`  | `boolean` | `true`  | Whether to keep the scroll position pinned to the bottom when new items are added.                                          |
+| `loadingHistory`  | `boolean` | `false` | Whether history is currently loading (affects prepend behavior).                                                            |
+| `tailCount`       | `number`  | `0`     | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance. |
+| `paddingBottom`   | `number`  | `0`     | Extra padding at the bottom of the scrollable area in pixels. Useful for clearing floating elements like input bars.        |
+| `paddingTop`      | `number`  | `0`     | Extra padding at the top of the scrollable area in pixels.                                                                  |
+| `bottomThreshold` | `number`  | `3`     | Distance in pixels from the bottom to report as "at bottom" (e.g., for hiding "Scroll to Bottom" buttons). **Note:** This does NOT affect the auto-scroll lock, which is controlled by `autoscrollThreshold`. |
+| `autoscrollThreshold` | `number` | `10` | Distance in pixels from the bottom to consider "locked" for auto-scrolling. |
 
 ### Slots
 

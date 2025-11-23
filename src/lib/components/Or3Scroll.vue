@@ -52,6 +52,16 @@ export interface Props<T> {
      * Extra padding at the top of the scrollable area in pixels.
      */
     paddingTop?: number;
+    /**
+     * Distance in pixels from the bottom to consider "at bottom".
+     * Used for auto-scrolling behavior.
+     */
+    bottomThreshold?: number;
+    /**
+     * Distance in pixels from the bottom to consider "locked" for auto-scrolling.
+     * This is the threshold for the "physics lock".
+     */
+    autoscrollThreshold?: number;
 }
 
 const props = withDefaults(defineProps<Props<T>>(), {
@@ -62,6 +72,8 @@ const props = withDefaults(defineProps<Props<T>>(), {
     tailCount: 0,
     paddingBottom: 0,
     paddingTop: 0,
+    bottomThreshold: 3,
+    autoscrollThreshold: 10,
 });
 
 const emit = defineEmits<{
@@ -79,7 +91,6 @@ const emit = defineEmits<{
 }>();
 
 // --- Constants ---
-const BOTTOM_THRESHOLD = 20; // pixels from bottom to consider "at bottom"
 const USER_SCROLL_END_DELAY = 140; // ms to wait before considering user scroll ended
 
 // --- State ---
@@ -89,7 +100,7 @@ const viewportHeight = ref(0);
 const scrollHeight = ref(0);
 const isUserScrolling = ref(false);
 const isAtBottom = ref(true); // Default to true? Or derive?
-let deferredScrollDelta = 0;
+const isAnchoredToBottom = ref(true); // Intent to stick to bottom
 let isDestroyed = false;
 
 // Engine - will be initialized with dynamic overscan values
@@ -130,19 +141,62 @@ const getItemKey = (item: T): string | number => {
 };
 
 // --- Scroll Handling ---
+const getVirtualScrollHeight = () => {
+    return engine.getTotalHeight() + props.paddingTop + props.paddingBottom;
+};
+
+const updateScrollState = (isContentUpdate = false, deltaY = 0) => {
+    if (!container.value) return;
+    const target = container.value;
+    // Always use virtual height to avoid stale DOM issues during updates
+    const currentScrollHeight = getVirtualScrollHeight();
+
+    const dist = currentScrollHeight - (target.scrollTop + target.clientHeight);
+    const physicallyAtBottom = dist <= props.bottomThreshold;
+    isAtBottom.value = physicallyAtBottom;
+
+    // If this is a content update (layout change), we should NOT change the anchor intent.
+    // The intent is based on user interaction or explicit scrolling.
+    // If the user was anchored, they should stay anchored even if the content pushes them away temporarily.
+    if (isContentUpdate) return;
+
+    // Update anchor intent
+    if (isUserScrolling.value) {
+        // Directional Locking:
+        // - Scrolling UP (negative delta): Break free easily (tight threshold)
+        // - Scrolling DOWN (positive delta): Re-lock easily (generous threshold)
+        if (deltaY < 0) {
+            if (dist > props.autoscrollThreshold) {
+                isAnchoredToBottom.value = false;
+            }
+        } else if (deltaY > 0) {
+            if (dist <= props.bottomThreshold) {
+                isAnchoredToBottom.value = true;
+            }
+        }
+    } else {
+        // If not user controlling, we only regain anchor if we happen to land at bottom
+        // We do NOT lose anchor here if we drift away due to layout changes
+        if (dist <= 1) {
+            isAnchoredToBottom.value = true;
+        }
+    }
+};
+
 const onScroll = () => {
     if (!container.value) return;
 
     const target = container.value;
+    // Calculate delta before updating state
+    const deltaY = target.scrollTop - scrollTop.value;
+
     scrollTop.value = target.scrollTop;
     scrollHeight.value = target.scrollHeight;
     if (isUserScrolling.value) {
         scheduleUserScrollEnd();
     }
 
-    // Update isAtBottom
-    const dist = target.scrollHeight - (target.scrollTop + target.clientHeight);
-    isAtBottom.value = dist <= BOTTOM_THRESHOLD;
+    updateScrollState(false, deltaY);
 
     // Emit
     emit('scroll', {
@@ -162,21 +216,12 @@ const onScroll = () => {
 // --- User Interaction Tracking ---
 let userScrollEndTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const applyDeferredScrollDelta = () => {
-    if (!deferredScrollDelta || !container.value) return;
-    container.value.scrollTop += deferredScrollDelta;
-    scrollTop.value = container.value.scrollTop;
-    deferredScrollDelta = 0;
-    updateRange();
-};
-
 const scheduleUserScrollEnd = () => {
     if (userScrollEndTimeout) {
         clearTimeout(userScrollEndTimeout);
     }
     userScrollEndTimeout = setTimeout(() => {
         isUserScrolling.value = false;
-        applyDeferredScrollDelta();
         userScrollEndTimeout = null;
     }, USER_SCROLL_END_DELAY);
 };
@@ -192,7 +237,6 @@ const onUserScrollEnd = () => {
         userScrollEndTimeout = null;
     }
     isUserScrolling.value = false;
-    applyDeferredScrollDelta();
 };
 
 const updateRange = () => {
@@ -306,7 +350,7 @@ const onItemResize = (index: number, entry: ResizeObserverEntry) => {
 };
 
 const pendingUpdates = new Map<number, number>();
-let updateRaf: number | null = null;
+let isUpdatePending = false;
 
 // --- Exposed Methods ---
 const scrollToBottom = () => {
@@ -356,7 +400,8 @@ const refreshMeasurements = () => {
         return;
     }
 
-    const anchorIndex = startIndex.value;
+    // Anchor to the top of the viewport, not the top of the rendered range
+    const anchorIndex = engine.findIndexForOffset(scrollTop.value);
     const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
     const fallback = props.estimateHeight ?? 50;
 
@@ -377,8 +422,8 @@ const refreshMeasurements = () => {
     updateRange();
 };
 const flushUpdates = () => {
-    updateRaf = null;
-    if (pendingUpdates.size === 0) return;
+    isUpdatePending = false;
+    if (pendingUpdates.size === 0 || isDestroyed) return;
 
     // Check for user movement BEFORE syncing state
     if (container.value) {
@@ -388,7 +433,8 @@ const flushUpdates = () => {
     }
 
     // We need to apply updates and compensate scroll.
-    const anchorIndex = startIndex.value;
+    // Anchor to the top of the viewport
+    const anchorIndex = engine.findIndexForOffset(scrollTop.value);
     const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
 
     // Apply all updates
@@ -401,36 +447,37 @@ const flushUpdates = () => {
     const delta = anchorOffsetAfter - anchorOffsetBefore;
 
     if (delta !== 0 && container.value) {
-        if (!isUserScrolling.value) {
-            container.value.scrollTop += delta;
-            scrollTop.value = container.value.scrollTop; // Sync
-        } else {
-            deferredScrollDelta += delta;
-        }
+        // Apply scroll correction immediately to prevent visual jumps
+        container.value.scrollTop += delta;
+        scrollTop.value = container.value.scrollTop; // Sync
     }
+
+    // Update scroll state to reflect new scrollHeight/scrollTop
+    // We must use the virtual height because the DOM update is pending
+    // Pass true to indicate this is a content update, so we don't lose anchor intent
+    updateScrollState(true);
 
     // Recompute range
     updateRange();
 
     // If following output, snap to bottom?
     if (props.maintainBottom && !isUserScrolling.value && container.value) {
-        const { scrollHeight, scrollTop, clientHeight } = container.value;
-        const isReallyAtBottom =
-            scrollHeight - (scrollTop + clientHeight) <= BOTTOM_THRESHOLD;
-
-        // Only snap if we are effectively at the bottom
-        // We removed the (isAtBottom.value && !userHasMoved) check because it was causing
-        // aggressive snapping when the user was trying to scroll up from the bottom.
-        if (isReallyAtBottom) {
-            scrollToBottom();
+        // We rely on the anchor intent, not just the physical position.
+        // This prevents "breaking free" when content grows rapidly pushing the bottom away.
+        if (isAnchoredToBottom.value) {
+            // Use nextTick to ensure we scroll to the new bottom AFTER the DOM updates
+            nextTick(scrollToBottom);
         }
     }
 };
 
 const queueUpdate = (index: number, height: number) => {
     pendingUpdates.set(index, height);
-    if (!updateRaf) {
-        updateRaf = requestAnimationFrame(flushUpdates);
+    if (!isUpdatePending) {
+        isUpdatePending = true;
+        // Use microtask to apply updates in the same frame to avoid visual jitter
+        // caused by the delay between layout change (ResizeObserver) and scroll correction.
+        queueMicrotask(flushUpdates);
     }
 };
 
@@ -458,6 +505,8 @@ const onViewportResize = (newHeight: number) => {
         // The current scrollTop should keep the same content visible
         updateRange();
     }
+
+    updateScrollState();
 };
 
 // --- Lifecycle ---
@@ -518,7 +567,7 @@ onMounted(() => {
 onUnmounted(() => {
     isDestroyed = true;
 
-    if (updateRaf) cancelAnimationFrame(updateRaf);
+    // Microtasks cannot be cancelled, but flushUpdates checks isDestroyed
     if (userScrollEndTimeout) {
         clearTimeout(userScrollEndTimeout);
         userScrollEndTimeout = null;
