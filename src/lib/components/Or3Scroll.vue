@@ -612,6 +612,13 @@ watch(
     }
 );
 
+watch(
+    () => props.overscan,
+    () => {
+        updateRange();
+    }
+);
+
 defineExpose({
     /**
      * Scrolls the container to the absolute bottom.

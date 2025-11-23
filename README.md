@@ -9,7 +9,6 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 -   **Prepend Support**: Seamlessly handles loading history (prepending items) while maintaining scroll position.
 -   **Hidden Measurement**: Measures items in a hidden pool before rendering to ensure accurate scroll offsets.
 -   **Optimized Tail Rendering**: Smart tail region handling with `maxWindow` constraint prevents excessive DOM nodes while keeping recent messages always rendered.
--   **Asymmetric Overscan**: Automatically uses more overscan above the viewport when at bottom for smoother upward scrolling.
 -   **Viewport Resize Handling**: Gracefully handles container height changes (e.g., mobile keyboards) with `ResizeObserver` integration.
 -   **Jump-to-Message**: Built-in `useScrollJump` composable for ID-based navigation with partial history loading support.
 
@@ -160,17 +159,17 @@ jumpTo('message-123', { align: 'center' });
 
 ### Props
 
-| Prop             | Type      | Default | Description                                                                                                                    |
-| ---------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `items`          | `any[]`   | `[]`    | The array of data items to render.                                                                                             |
-| `itemKey`        | `string`  | `'id'`  | The property name to use as a unique key for each item.                                                                        |
-| `estimateHeight` | `number`  | `50`    | Estimated height of an item in pixels. Used for initial calculations.                                                          |
-| `overscan`       | `number`  | `200`   | Extra buffer in pixels to render above/below viewport. Automatically becomes asymmetric (2x above, 0.5x below) when at bottom. |
-| `maintainBottom` | `boolean` | `true`  | Whether to keep the scroll position pinned to the bottom when new items are added.                                             |
-| `loadingHistory` | `boolean` | `false` | Whether history is currently loading (affects prepend behavior).                                                               |
-| `tailCount`      | `number`  | `0`     | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance.    |
-| `paddingBottom`  | `number`  | `0`     | Extra padding at the bottom of the scrollable area in pixels. Useful for clearing floating elements like input bars.           |
-| `paddingTop`     | `number`  | `0`     | Extra padding at the top of the scrollable area in pixels.                                                                     |
+| Prop             | Type      | Default | Description                                                                                                                 |
+| ---------------- | --------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `items`          | `any[]`   | `[]`    | The array of data items to render.                                                                                          |
+| `itemKey`        | `string`  | `'id'`  | The property name to use as a unique key for each item.                                                                     |
+| `estimateHeight` | `number`  | `50`    | Estimated height of an item in pixels. Used for initial calculations.                                                       |
+| `overscan`       | `number`  | `200`   | Extra buffer in pixels to render above/below viewport.                                                                      |
+| `maintainBottom` | `boolean` | `true`  | Whether to keep the scroll position pinned to the bottom when new items are added.                                          |
+| `loadingHistory` | `boolean` | `false` | Whether history is currently loading (affects prepend behavior).                                                            |
+| `tailCount`      | `number`  | `0`     | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance. |
+| `paddingBottom`  | `number`  | `0`     | Extra padding at the bottom of the scrollable area in pixels. Useful for clearing floating elements like input bars.        |
+| `paddingTop`     | `number`  | `0`     | Extra padding at the top of the scrollable area in pixels.                                                                  |
 
 ### Slots
 
@@ -250,7 +249,6 @@ For AI chat interfaces where the last message grows in real-time:
 ## Performance Tips
 
 -   **Tail Count**: Set `tailCount` to the number of recent messages you want always rendered (e.g., 10-20). This prevents flickering during rapid updates while keeping total DOM nodes low.
--   **Asymmetric Overscan**: The component automatically uses more overscan above when at bottom. This means smoother scrolling upward while minimizing unnecessary nodes below.
 -   **Viewport Resize**: The component automatically handles container height changes via `ResizeObserver`. On mobile, this means smooth behavior when the keyboard opens/closes.
 
 ## Caveats / Gotchas
