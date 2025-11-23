@@ -1,54 +1,54 @@
 {
-  "name": "or3-scroll",
-  "version": "0.0.2",
-  "description": "A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-anchored layouts, streaming content, and dynamic item heights.",
-  "license": "MIT",
-  "type": "module",
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
-  ],
-  "main": "./dist/or3-scroll.umd.cjs",
-  "module": "./dist/or3-scroll.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/or3-scroll.js",
-      "require": "./dist/or3-scroll.umd.cjs",
-      "types": "./dist/index.d.ts"
+    "name": "or3-scroll",
+    "version": "0.0.2",
+    "description": "A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-anchored layouts, streaming content, and dynamic item heights.",
+    "license": "MIT",
+    "type": "module",
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+    ],
+    "main": "./dist/or3-scroll.umd.cjs",
+    "module": "./dist/or3-scroll.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/or3-scroll.js",
+            "require": "./dist/or3-scroll.umd.cjs",
+            "types": "./dist/index.d.ts"
+        },
+        "./style.css": "./dist/style.css"
     },
-    "./style.css": "./dist/style.css"
-  },
-  "scripts": {
-    "dev": "vite examples/ai-streaming-chat --config vite.config.ts",
-    "dev:scroll": "vite examples/basic-chat --config vite.config.ts",
-    "build": "vue-tsc && vite build",
-    "build:demo": "vite build --config vite.demo.config.ts",
-    "test": "vitest",
-    "lint": "eslint src --ext .ts,.vue --ignore-path .gitignore",
-    "prepublishOnly": "npm run build && npm test"
-  },
-  "peerDependencies": {
-    "vue": "^3.3.0"
-  },
-  "devDependencies": {
-    "@types/node": "^24.10.1",
-    "@typescript-eslint/eslint-plugin": "^8.47.0",
-    "@typescript-eslint/parser": "^8.47.0",
-    "@vitejs/plugin-vue": "^5.0.0",
-    "@vue/test-utils": "^2.4.0",
-    "eslint": "^8.57.0",
-    "eslint-plugin-vue": "^9.20.1",
-    "jsdom": "^27.2.0",
-    "katex": "^0.16.25",
-    "streamdown-vue": "^1.0.25",
-    "typescript": "^5.0.0",
-    "vite": "^5.0.0",
-    "vite-plugin-dts": "^4.5.4",
-    "vitest": "^1.0.0",
-    "vue": "^3.4.0",
-    "vue-tsc": "^2.0.0"
-  }
+    "scripts": {
+        "dev": "vite examples/ai-streaming-chat --config vite.config.ts",
+        "dev:scroll": "vite examples/basic-chat --config vite.config.ts",
+        "build": "vue-tsc && vite build",
+        "build:demo": "vite build --config vite.demo.config.ts",
+        "test": "vitest",
+        "lint": "eslint src --ext .ts,.vue --ignore-path .gitignore",
+        "prepublishOnly": "npm run build && npm test"
+    },
+    "peerDependencies": {
+        "vue": "^3.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^24.10.1",
+        "@typescript-eslint/eslint-plugin": "^8.47.0",
+        "@typescript-eslint/parser": "^8.47.0",
+        "@vitejs/plugin-vue": "^5.0.0",
+        "@vue/test-utils": "^2.4.0",
+        "eslint": "^8.57.0",
+        "eslint-plugin-vue": "^9.20.1",
+        "jsdom": "^27.2.0",
+        "katex": "^0.16.25",
+        "streamdown-vue": "^1.0.25",
+        "typescript": "^5.0.0",
+        "vite": "^5.0.0",
+        "vite-plugin-dts": "^4.5.4",
+        "vitest": "^1.0.0",
+        "vue": "^3.4.0",
+        "vue-tsc": "^2.0.0"
+    }
 }
