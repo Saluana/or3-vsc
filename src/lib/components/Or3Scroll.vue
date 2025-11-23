@@ -81,7 +81,6 @@ const emit = defineEmits<{
 // --- Constants ---
 const BOTTOM_THRESHOLD = 20; // pixels from bottom to consider "at bottom"
 const USER_SCROLL_END_DELAY = 140; // ms to wait before considering user scroll ended
-const SCROLL_POSITION_TOLERANCE = 5; // pixels tolerance for detecting user scroll
 
 // --- State ---
 const container = ref<HTMLElement | null>(null);
@@ -221,13 +220,10 @@ const getOverscanConfig = () => {
     const estimatedItemsPerScreen = vh / (props.estimateHeight || 50);
     const maxWindow = Math.ceil(estimatedItemsPerScreen * 2);
 
-    // Asymmetric overscan: when at bottom, prefer more overscan above
-    const topMultiplier = isAtBottom.value ? 2.0 : 1.0;
-    const bottomMultiplier = isAtBottom.value ? 0.5 : 1.0;
-
+    // Use symmetric overscan to prevent layout thrashing at bottom
     return {
-        overscanTop: base * topMultiplier,
-        overscanBottom: base * bottomMultiplier,
+        overscanTop: base,
+        overscanBottom: base,
         maxWindow,
     };
 };
@@ -385,17 +381,8 @@ const flushUpdates = () => {
     if (pendingUpdates.size === 0) return;
 
     // Check for user movement BEFORE syncing state
-    let userHasMoved = false;
     if (container.value) {
         const liveScrollTop = container.value.scrollTop;
-        // If the live scroll position differs significantly from our last known position,
-        // it means the user has scrolled (and onScroll hasn't processed it yet).
-        if (
-            Math.abs(liveScrollTop - scrollTop.value) >
-            SCROLL_POSITION_TOLERANCE
-        ) {
-            userHasMoved = true;
-        }
         // Sync local state
         scrollTop.value = liveScrollTop;
     }
@@ -431,12 +418,10 @@ const flushUpdates = () => {
         const isReallyAtBottom =
             scrollHeight - (scrollTop + clientHeight) <= BOTTOM_THRESHOLD;
 
-        // We snap if we are effectively at the bottom,
-        // OR if we were at the bottom before and the user hasn't moved (auto-scroll for new content)
-        const shouldSnap =
-            isReallyAtBottom || (isAtBottom.value && !userHasMoved);
-
-        if (shouldSnap) {
+        // Only snap if we are effectively at the bottom
+        // We removed the (isAtBottom.value && !userHasMoved) check because it was causing
+        // aggressive snapping when the user was trying to scroll up from the bottom.
+        if (isReallyAtBottom) {
             scrollToBottom();
         }
     }
