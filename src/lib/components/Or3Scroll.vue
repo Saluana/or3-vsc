@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick, shallowRef } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, shallowRef, type ComponentPublicInstance } from 'vue';
 import { VirtualizerEngine } from '../core/virtualizer';
 import { resizeObserverManager } from '../measurement/observer';
 
@@ -49,6 +49,11 @@ const emit = defineEmits<{
   (e: 'reachTop'): void;
   (e: 'reachBottom'): void;
 }>();
+
+// --- Constants ---
+const BOTTOM_THRESHOLD = 20; // pixels from bottom to consider "at bottom"
+const USER_SCROLL_END_DELAY = 140; // ms to wait before considering user scroll ended
+const SCROLL_POSITION_TOLERANCE = 5; // pixels tolerance for detecting user scroll
 
 // --- State ---
 const container = ref<HTMLElement | null>(null);
@@ -109,11 +114,8 @@ const onScroll = () => {
   }
   
   // Update isAtBottom
-  // Threshold? Requirements say "threshold" but don't specify default.
-  // Design says "bottomThreshold". Let's use 20px.
-  const bottomThreshold = 20;
   const dist = target.scrollHeight - (target.scrollTop + target.clientHeight);
-  isAtBottom.value = dist <= bottomThreshold;
+  isAtBottom.value = dist <= BOTTOM_THRESHOLD;
 
   // Emit
   emit('scroll', {
@@ -131,7 +133,7 @@ const onScroll = () => {
 };
 
 // --- User Interaction Tracking ---
-let userScrollEndTimeout: number | null = null;
+let userScrollEndTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const applyDeferredScrollDelta = () => {
   if (!deferredScrollDelta || !container.value) return;
@@ -145,11 +147,11 @@ const scheduleUserScrollEnd = () => {
   if (userScrollEndTimeout) {
     clearTimeout(userScrollEndTimeout);
   }
-  userScrollEndTimeout = window.setTimeout(() => {
+  userScrollEndTimeout = setTimeout(() => {
     isUserScrolling.value = false;
     applyDeferredScrollDelta();
     userScrollEndTimeout = null;
-  }, 140) as any;
+  }, USER_SCROLL_END_DELAY);
 };
 
 const onUserScrollStart = () => {
@@ -172,10 +174,9 @@ const updateRange = () => {
   // Compute dynamic overscan values based on position
   const { overscanTop, overscanBottom, maxWindow } = getOverscanConfig();
   
-  // Update engine config
-  engine['config'].overscanTop = overscanTop;
-  engine['config'].overscanBottom = overscanBottom;
-  engine['config'].maxWindow = maxWindow;
+  // Update engine config using public methods
+  engine.updateOverscan(overscanTop, overscanBottom);
+  engine.updateMaxWindow(maxWindow);
   
   const range = engine.computeRange(scrollTop.value, viewportHeight.value);
   startIndex.value = range.startIndex;
@@ -252,9 +253,10 @@ const measureItems = async (items: T[]): Promise<number[]> => {
 // --- Resize Observer & Measurement ---
 const itemRefs = new Map<number, HTMLElement>();
 
-const setItemRef = (index: number) => (el: any) => {
+const setItemRef = (index: number) => (el: Element | ComponentPublicInstance | null) => {
   if (el) {
-    const element = el as HTMLElement;
+    // Handle both raw elements and Vue component instances
+    const element = (el instanceof Element ? el : (el as ComponentPublicInstance).$el) as HTMLElement;
     itemRefs.set(index, element);
     resizeObserverManager.observe(element, (entry) => onItemResize(index, entry));
   } else {
@@ -267,7 +269,8 @@ const setItemRef = (index: number) => (el: any) => {
 };
 
 const onItemResize = (index: number, entry: ResizeObserverEntry) => {
-  const height = entry.borderBoxSize[0].blockSize;
+  // Use borderBoxSize if available (modern browsers), fallback to contentRect for compatibility
+  const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
   
   // We queue the update to batch changes and detect scroll shifts.
   // Do NOT update engine immediately, otherwise flushUpdates can't calculate delta.
@@ -344,7 +347,7 @@ const flushUpdates = () => {
     const liveScrollTop = container.value.scrollTop;
     // If the live scroll position differs significantly from our last known position,
     // it means the user has scrolled (and onScroll hasn't processed it yet).
-    if (Math.abs(liveScrollTop - scrollTop.value) > 5) {
+    if (Math.abs(liveScrollTop - scrollTop.value) > SCROLL_POSITION_TOLERANCE) {
       userHasMoved = true;
     }
     // Sync local state
@@ -379,8 +382,7 @@ const flushUpdates = () => {
   // If following output, snap to bottom?
   if (props.maintainBottom && !isUserScrolling.value && container.value) {
     const { scrollHeight, scrollTop, clientHeight } = container.value;
-    const bottomThreshold = 20;
-    const isReallyAtBottom = (scrollHeight - (scrollTop + clientHeight)) <= bottomThreshold;
+    const isReallyAtBottom = (scrollHeight - (scrollTop + clientHeight)) <= BOTTOM_THRESHOLD;
     
     // We snap if we are effectively at the bottom, 
     // OR if we were at the bottom before and the user hasn't moved (auto-scroll for new content)
@@ -439,7 +441,9 @@ onMounted(() => {
     }
     
     // --- Guardrails ---
-    if (import.meta.env.DEV) {
+    // Only show warnings in dev mode and not in test environment
+    const isTestEnv = import.meta.env.MODE === 'test' || typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (import.meta.env.DEV && !isTestEnv) {
       if (viewportHeight.value === 0) {
         console.warn(
           '[or3-scroll] Container has 0 height. Please ensure the parent container has a set height or flex constraint.'
@@ -594,22 +598,31 @@ defineExpose({
     @wheel.passive="onUserScrollStart"
     @mouseleave="onUserScrollEnd"
   >
-    <div class="or3-scroll-track" :style="{ height: totalHeight + 'px' }">
+    <div
+      class="or3-scroll-track"
+      :style="{ height: totalHeight + 'px' }"
+    >
       <div
         class="or3-scroll-slice"
         :style="{ transform: `translateY(${offsetY}px)` }"
       >
-        <slot name="prepend-loading" v-if="loadingHistory" />
+        <slot
+          v-if="loadingHistory"
+          name="prepend-loading"
+        />
         <template
           v-for="(item, i) in visibleItems"
           :key="getItemKey(item)"
         >
           <div 
-            class="or3-scroll-item" 
-            :data-index="startIndex + i"
             :ref="setItemRef(startIndex + i)"
+            class="or3-scroll-item"
+            :data-index="startIndex + i"
           >
-            <slot :item="item" :index="startIndex + i" />
+            <slot
+              :item="item"
+              :index="startIndex + i"
+            />
           </div>
         </template>
       </div>
@@ -620,21 +633,30 @@ defineExpose({
         class="or3-scroll-hidden-pool"
         aria-hidden="true"
       >
-        <slot name="prepend-loading" v-if="loadingHistory" />
-        <template v-for="(item, i) in itemsToMeasure" :key="i">
-           <div :ref="el => setMeasureRef(i, el as HTMLElement | null)">
-             <slot :item="item" :index="-1" />
-           </div>
+        <slot
+          v-if="loadingHistory"
+          name="prepend-loading"
+        />
+        <template
+          v-for="(item, i) in itemsToMeasure"
+          :key="i"
+        >
+          <div :ref="el => setMeasureRef(i, el as HTMLElement | null)">
+            <slot
+              :item="item"
+              :index="-1"
+            />
+          </div>
         </template>
       </div>
       
       <!-- Debug Slot -->
       <slot 
         name="__debug" 
-        :startIndex="startIndex" 
-        :endIndex="endIndex" 
-        :totalHeight="totalHeight"
-        :scrollTop="scrollTop"
+        :start-index="startIndex" 
+        :end-index="endIndex" 
+        :total-height="totalHeight"
+        :scroll-top="scrollTop"
       />
     </div>
   </div>

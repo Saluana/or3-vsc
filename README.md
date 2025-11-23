@@ -33,7 +33,7 @@ Here is a minimal example of a chat interface using `<Or3Scroll>`.
 <script setup lang="ts">
 import { ref } from 'vue';
 import { Or3Scroll } from 'or3-scroll';
-import 'or3-scroll/dist/style.css'; // Import styles if needed (though it's mostly headless)
+import 'or3-scroll/dist/style.css'; // Required for structural layout
 
 const messages = ref([
   { id: 1, text: 'Hello!' },
@@ -128,7 +128,7 @@ const messages = ref([...]);
 const scrollerRef = ref<InstanceType<typeof Or3Scroll> | null>(null);
 
 // Setup jump-to-message with history loading
-const { jumpTo } = useScrollJump({
+const { jumpTo, jumpState } = useScrollJump({
   scrollerRef,
   items: messages,
   getItemId: (msg) => msg.id,
@@ -145,6 +145,19 @@ const { jumpTo } = useScrollJump({
 // Later: jump to a message that might not be loaded yet
 jumpTo('message-123', { align: 'center' });
 </script>
+
+<template>
+  <div class="chat-container">
+    <!-- Show a loading indicator while searching history -->
+    <div v-if="jumpState.state === 'waitingForHistory'" class="jump-loader">
+      Locating message...
+    </div>
+
+    <Or3Scroll ref="scrollerRef" :items="messages" item-key="id">
+      <!-- ... -->
+    </Or3Scroll>
+  </div>
+</template>
 ```
 
 ## API Reference
@@ -160,6 +173,13 @@ jumpTo('message-123', { align: 'center' });
 | `maintainBottom` | `boolean` | `true` | Whether to keep the scroll position pinned to the bottom when new items are added. |
 | `loadingHistory` | `boolean` | `false` | Whether history is currently loading (affects prepend behavior). |
 | `tailCount` | `number` | `0` | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance. |
+
+### Slots
+
+| Slot | Props | Description |
+|------|-------|-------------|
+| `default` | `{ item: T, index: number }` | The content for each item. |
+| `prepend-loading` | - | Content to show at the top of the list when `loadingHistory` is true. Useful for loading spinners. |
 
 ### Events
 
@@ -191,13 +211,34 @@ To implement infinite scrolling upwards (loading history):
 4. `or3-scroll` will automatically adjust the scroll position so the user doesn't lose their place.
 
 ```ts
+const isLoadingHistory = ref(false);
+
 const onReachTop = async () => {
-  if (isLoadingHistory) return;
-  isLoadingHistory = true;
-  const olderMessages = await fetchHistory();
-  messages.value = [...olderMessages, ...messages.value];
-  isLoadingHistory = false;
+  if (isLoadingHistory.value) return;
+  isLoadingHistory.value = true;
+  
+  try {
+    const olderMessages = await fetchHistory();
+    messages.value = [...olderMessages, ...messages.value];
+  } finally {
+    isLoadingHistory.value = false;
+  }
 };
+```
+
+And in your template:
+
+```vue
+<Or3Scroll
+  :items="messages"
+  :loading-history="isLoadingHistory"
+  @reachTop="onReachTop"
+>
+  <template #prepend-loading>
+    <div class="spinner">Loading history...</div>
+  </template>
+  <!-- ... -->
+</Or3Scroll>
 ```
 
 ### AI Streaming Tail
@@ -219,6 +260,26 @@ For AI chat interfaces where the last message grows in real-time:
 - **Fixed Height Container**: The parent container of `<Or3Scroll>` **must** have a fixed height (e.g., `height: 100vh` or `height: 500px`) and `overflow: hidden` (the component handles the scrolling internally).
 - **Images**: If items contain images, their height might change after loading. It's best to define image dimensions explicitly or use the `refreshMeasurements` method after images load if you see layout shifts.
 - **ResizeObserver**: The component uses `ResizeObserver` for viewport height tracking. This is supported in all modern browsers but not in test environments like JSDOM by default.
+
+## Security Considerations
+
+**⚠️ Important**: This component renders user-provided content through Vue slots. Always sanitize and validate user-generated content before passing it to the component to prevent XSS (Cross-Site Scripting) attacks. The component itself does not perform any sanitization.
+
+```vue
+<!-- ❌ BAD: Rendering unsanitized user input -->
+<Or3Scroll :items="messages">
+  <template #default="{ item }">
+    <div v-html="item.userContent"></div> <!-- Dangerous! -->
+  </template>
+</Or3Scroll>
+
+<!-- ✅ GOOD: Sanitize user input or use text interpolation -->
+<Or3Scroll :items="messages">
+  <template #default="{ item }">
+    <div>{{ item.userContent }}</div> <!-- Safe text interpolation -->
+  </template>
+</Or3Scroll>
+```
 
 ## Troubleshooting
 

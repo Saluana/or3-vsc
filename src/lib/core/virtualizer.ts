@@ -210,6 +210,22 @@ export class VirtualizerEngine {
     return this.prefixSums.total();
   }
 
+  /**
+   * Updates the overscan configuration.
+   * This is useful for dynamic overscan adjustments based on scroll position.
+   */
+  updateOverscan(overscanTop: number, overscanBottom: number): void {
+    this.config.overscanTop = overscanTop;
+    this.config.overscanBottom = overscanBottom;
+  }
+
+  /**
+   * Updates the maximum window size for tail rendering.
+   */
+  updateMaxWindow(maxWindow: number | undefined): void {
+    this.config.maxWindow = maxWindow;
+  }
+
   private rebuildPrefixSums(): void {
     this.prefixSums.resize(this.count);
     
