@@ -97,7 +97,6 @@ const USER_SCROLL_END_DELAY = 140; // ms to wait before considering user scroll 
 const container = ref<HTMLElement | null>(null);
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
-const scrollHeight = ref(0);
 const isUserScrolling = ref(false);
 const isAtBottom = ref(true); // Default to true? Or derive?
 const isAnchoredToBottom = ref(true); // Intent to stick to bottom
@@ -120,12 +119,7 @@ const totalHeight = ref(0);
 
 // Visible Items
 const visibleItems = computed(() => {
-    if (!props.items || props.items.length === 0) return [];
-    // Slice is exclusive end, so +1
-    // But endIndex from engine is inclusive?
-    // Engine: "startIndex, endIndex" (inclusive)
-    // Array.slice: start, end (exclusive)
-    // So we need slice(startIndex, endIndex + 1)
+    // Engine returns inclusive endIndex; slice needs exclusive end
     const end = endIndex.value === -1 ? 0 : endIndex.value + 1;
     return props.items.slice(startIndex.value, end);
 });
@@ -133,11 +127,22 @@ const visibleItems = computed(() => {
 // Helper to get key
 const getItemKey = (item: T): string | number => {
     if (typeof props.itemKey === 'function') {
-        return (props.itemKey as (item: T) => string | number)(item);
+        return props.itemKey(item);
     }
-
-    const key = props.itemKey as keyof T;
-    return item[key] as unknown as string | number;
+    const value = item[props.itemKey];
+    if (
+        import.meta.env.DEV &&
+        typeof value !== 'string' &&
+        typeof value !== 'number'
+    ) {
+        console.warn(
+            `[or3-scroll] itemKey "${String(
+                props.itemKey
+            )}" resolved to non-string/number:`,
+            value
+        );
+    }
+    return value as string | number;
 };
 
 // --- Scroll Handling ---
@@ -191,7 +196,6 @@ const onScroll = () => {
     const deltaY = target.scrollTop - scrollTop.value;
 
     scrollTop.value = target.scrollTop;
-    scrollHeight.value = target.scrollHeight;
     if (isUserScrolling.value) {
         scheduleUserScrollEnd();
     }
@@ -201,7 +205,7 @@ const onScroll = () => {
     // Emit
     emit('scroll', {
         scrollTop: scrollTop.value,
-        scrollHeight: scrollHeight.value,
+        scrollHeight: target.scrollHeight,
         clientHeight: viewportHeight.value,
         isAtBottom: isAtBottom.value,
     });
@@ -352,10 +356,45 @@ const onItemResize = (index: number, entry: ResizeObserverEntry) => {
 const pendingUpdates = new Map<number, number>();
 let isUpdatePending = false;
 
-// --- Exposed Methods ---
-const scrollToBottom = () => {
+// --- Internal Helpers ---
+/**
+ * Resets internal state for a complete content replacement (e.g., thread switch).
+ * Cleans up observers, resets engine, and optionally scrolls to bottom.
+ */
+const resetForNewContent = (count: number) => {
+    itemRefs.forEach((el) => resizeObserverManager.unobserve(el));
+    itemRefs.clear();
+    pendingUpdates.clear();
+    engine.resetHeights();
+    engine.setCount(count);
+    isAnchoredToBottom.value = true;
+    scrollTop.value = 0;
     if (container.value) {
-        container.value.scrollTop = container.value.scrollHeight;
+        container.value.scrollTop = 0;
+    }
+    updateRange();
+    if (props.maintainBottom) {
+        // Double RAF ensures layout is complete before scrolling
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                scrollToBottom();
+            });
+        });
+    }
+};
+
+// --- Exposed Methods ---
+const scrollToBottom = (opts: { smooth?: boolean } = {}) => {
+    if (!container.value) return;
+
+    // Use DOM scrollHeight directly - it's the source of truth for what's scrollable
+    const el = container.value;
+    const targetScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+
+    if (opts.smooth) {
+        el.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+    } else {
+        el.scrollTop = targetScrollTop;
     }
 };
 
@@ -432,10 +471,19 @@ const flushUpdates = () => {
         scrollTop.value = liveScrollTop;
     }
 
-    // We need to apply updates and compensate scroll.
-    // Anchor to the top of the viewport
-    const anchorIndex = engine.findIndexForOffset(scrollTop.value);
-    const anchorOffsetBefore = engine.getOffsetForIndex(anchorIndex);
+    // If anchored to bottom, we handle scroll compensation differently
+    const shouldAnchorBottom =
+        props.maintainBottom &&
+        !isUserScrolling.value &&
+        isAnchoredToBottom.value;
+
+    // For non-bottom anchoring, anchor to the top of the viewport
+    const anchorIndex = !shouldAnchorBottom
+        ? engine.findIndexForOffset(scrollTop.value)
+        : 0;
+    const anchorOffsetBefore = !shouldAnchorBottom
+        ? engine.getOffsetForIndex(anchorIndex)
+        : 0;
 
     // Apply all updates
     for (const [index, height] of pendingUpdates) {
@@ -443,32 +491,33 @@ const flushUpdates = () => {
     }
     pendingUpdates.clear();
 
-    const anchorOffsetAfter = engine.getOffsetForIndex(anchorIndex);
-    const delta = anchorOffsetAfter - anchorOffsetBefore;
+    // Update the range FIRST so totalHeight ref is in sync with engine
+    // This ensures DOM track height matches before we try to scroll
+    updateRange();
 
-    if (delta !== 0 && container.value) {
-        // Apply scroll correction immediately to prevent visual jumps
-        container.value.scrollTop += delta;
-        scrollTop.value = container.value.scrollTop; // Sync
+    if (shouldAnchorBottom && container.value) {
+        // Bottom-anchored: scroll to the new bottom position
+        // Use nextTick to ensure DOM has updated with new track height
+        nextTick(() => {
+            if (container.value && !isDestroyed && isAnchoredToBottom.value) {
+                scrollToBottom();
+                scrollTop.value = container.value.scrollTop;
+            }
+        });
+    } else if (container.value) {
+        // Top-anchored: adjust scroll by the change in anchor offset
+        const anchorOffsetAfter = engine.getOffsetForIndex(anchorIndex);
+        const delta = anchorOffsetAfter - anchorOffsetBefore;
+        if (delta !== 0) {
+            container.value.scrollTop += delta;
+            scrollTop.value = container.value.scrollTop;
+        }
     }
 
     // Update scroll state to reflect new scrollHeight/scrollTop
     // We must use the virtual height because the DOM update is pending
     // Pass true to indicate this is a content update, so we don't lose anchor intent
     updateScrollState(true);
-
-    // Recompute range
-    updateRange();
-
-    // If following output, snap to bottom?
-    if (props.maintainBottom && !isUserScrolling.value && container.value) {
-        // We rely on the anchor intent, not just the physical position.
-        // This prevents "breaking free" when content grows rapidly pushing the bottom away.
-        if (isAnchoredToBottom.value) {
-            // Use nextTick to ensure we scroll to the new bottom AFTER the DOM updates
-            nextTick(scrollToBottom);
-        }
-    }
 };
 
 const queueUpdate = (index: number, height: number) => {
@@ -592,17 +641,35 @@ watch(
         const newCount = newItems.length;
         const oldCount = oldItems.length;
 
+        // Get first keys for comparison
+        const firstKeyOld = oldCount > 0 ? getItemKey(oldItems[0]) : null;
+        const firstKeyNew = newCount > 0 ? getItemKey(newItems[0]) : null;
+        const firstKeyChanged =
+            firstKeyOld !== null &&
+            firstKeyNew !== null &&
+            firstKeyOld !== firstKeyNew;
+
         if (newCount === oldCount) {
+            // Same count but different first key = complete replacement (e.g., thread switch)
+            if (firstKeyChanged) {
+                resetForNewContent(newCount);
+            }
             return;
         }
 
         if (newCount > oldCount) {
-            // Fast path: common append/no-op case where head key is unchanged.
-            const firstKeyOld = getItemKey(oldItems[0]);
-            const firstKeyNew = getItemKey(newItems[0]);
-            if (firstKeyOld === firstKeyNew) {
+            // Fast path: common append case where head key is unchanged.
+            if (!firstKeyChanged) {
                 engine.setCount(newCount);
                 updateRange();
+                // If anchored to bottom, scroll to keep up with appended items
+                if (
+                    props.maintainBottom &&
+                    isAnchoredToBottom.value &&
+                    !isUserScrolling.value
+                ) {
+                    nextTick(scrollToBottom);
+                }
                 return;
             }
 
@@ -619,6 +686,7 @@ watch(
                         getItemKey(newItems[idx + indexInNew])
                 );
                 if (tailMatches) {
+                    // This is a prepend, not a replacement
                     const prependCount = indexInNew;
                     const heights = props.loadingHistory
                         ? await measureItems(newItems.slice(0, prependCount))
@@ -643,11 +711,21 @@ watch(
                     return;
                 }
             }
+
+            // First key changed but not a prepend = complete replacement with different count
+            resetForNewContent(newCount);
+            return;
         }
 
-        // Default: Append or other change
-        engine.setCount(newCount);
-        updateRange();
+        // Default: count decreased or other structural change
+        // If firstKeyChanged, this is a thread switch - reset everything
+        if (firstKeyChanged) {
+            resetForNewContent(newCount);
+        } else {
+            // Same thread, just fewer items (e.g., items deleted)
+            engine.setCount(newCount);
+            updateRange();
+        }
     },
     { immediate: true }
 );
@@ -667,6 +745,23 @@ watch(
         updateRange();
     }
 );
+
+/**
+ * Resets all height measurements and scroll position.
+ * Call this when switching to entirely new content (e.g., thread switch).
+ */
+const reset = () => {
+    engine.resetHeights();
+    isAnchoredToBottom.value = true;
+    scrollTop.value = 0;
+    if (container.value) {
+        container.value.scrollTop = 0;
+    }
+    updateRange();
+    if (props.maintainBottom) {
+        nextTick(scrollToBottom);
+    }
+};
 
 defineExpose({
     /**
@@ -690,6 +785,11 @@ defineExpose({
      * Useful if item content changes size without the item itself being replaced.
      */
     refreshMeasurements,
+    /**
+     * Resets all height measurements and scroll position.
+     * Useful when switching to entirely new content.
+     */
+    reset,
     /**
      * Whether the scroller is currently at the bottom (within threshold).
      */
@@ -781,6 +881,11 @@ defineExpose({
     left: 0;
     width: 100%;
     will-change: transform;
+}
+
+.or3-scroll-item {
+    /* Prevent margin collapse - ensures measured height matches rendered height */
+    overflow: hidden;
 }
 
 .or3-scroll-hidden-pool {
