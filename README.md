@@ -5,7 +5,7 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 ## Features
 
 -   **Smart Auto-Scroll**: Locks to the bottom with a tight, configurable threshold (default 10px), allowing users to easily "break free" to read history without fighting the scroller.
--   **Jank-Free Updates**: Uses microtask-based scroll correction to handle layout shifts within the same frame, preventing visual glitches during rapid content updates.
+-   **Stable Browsing**: Commits layout changes at scroll end while preserving the visible keyed row and its within-row offset.
 -   **Bottom Anchoring**: Keeps the scroll position pinned to the bottom as new content arrives (chat style).
 -   **Dynamic Heights**: Handles items with variable and changing heights without jitter.
 -   **Prepend Support**: Seamlessly handles loading history (prepending items) while maintaining scroll position.
@@ -13,25 +13,27 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 -   **Optimized Tail Rendering**: Smart tail region handling with `maxWindow` constraint prevents excessive DOM nodes while keeping recent messages always rendered.
 -   **Viewport Resize Handling**: Gracefully handles container height changes (e.g., mobile keyboards) with `ResizeObserver` integration.
 -   **Jump-to-Message**: Built-in `useScrollJump` composable for ID-based navigation with partial history loading support.
+-   **Media Prefetch Range**: Warms media ahead of the viewport without mounting additional rows.
+-   **SSR-Safe Import**: Browser observers are constructed lazily after mounting.
 
 ## Scroll Physics & Auto-Scroll Behavior
 
 `or3-scroll` implements a sophisticated auto-scroll logic designed specifically for high-frequency chat applications:
 
-1.  **Decoupled Locking**:
+1.  **Explicit Scroll Intent**:
 
-    -   **UI Status**: The `isAtBottom` property (used for "Scroll to Bottom" buttons) uses a generous `bottomThreshold` (default 3px).
-    -   **Physics Lock**: The auto-scroll "lock" uses a directional logic:
-        -   **Breaking Free**: When scrolling **UP** (away from bottom), it uses a tight `autoscrollThreshold` (default **10px**). This allows you to easily escape the lock.
-        -   **Re-Locking**: When scrolling **DOWN** (towards bottom), it uses the generous `bottomThreshold` (default **3px**). This makes it easy to re-engage the lock without hitting the absolute bottom pixel.
+    -   Following-bottom, user-browsing, programmatic-jump, and layout-compensation work are tracked separately.
+    -   Wheel, pointer, touch, keyboard, scrollbar, and unexplained upward movement suspend bottom following.
+    -   Reaching the bottom or calling `scrollToBottom()` resumes following when `maintainBottom` is enabled.
 
-2.  **Sticky Anchor**:
+2.  **Committed Scrollbar & Keyed Anchor**:
 
-    -   If you are locked to the bottom, the scroller stays locked even if a large message arrives and pushes you further away visually. It will snap you back to the new bottom automatically.
-    -   The lock is **only** released when _you_ actively scroll up.
+    -   While browsing, model height changes are batched until native `scrollend` or the inactivity fallback fires.
+    -   The visible keyed row and within-row offset are preserved when the committed height changes.
+    -   While following, the new track height and bottom position are committed together.
 
-3.  **Microtask Correction**:
-    -   Layout shifts (e.g., images loading, messages expanding) are corrected within the same animation frame using microtasks. This eliminates the 1-frame visual "jump" or "shake" often seen in virtual scrollers during rapid updates.
+3.  **Frame-Coalesced Work**:
+    -   Native scroll events, range calculation, prefetch calculation, and the public `scroll` event are coalesced to the latest position once per animation frame.
 
 ## Installation
 
@@ -53,7 +55,7 @@ Here is a minimal example of a chat interface using `<Or3Scroll>`.
 <script setup lang="ts">
 import { ref } from 'vue';
 import { Or3Scroll } from 'or3-scroll';
-import 'or3-scroll/dist/style.css'; // Required for structural layout
+import 'or3-scroll/style.css'; // Required for structural layout
 
 const messages = ref([
     { id: 1, text: 'Hello!' },
@@ -180,19 +182,22 @@ jumpTo('message-123', { align: 'center' });
 
 ### Props
 
-| Prop                  | Type      | Default | Description                                                                                                                                                                                                   |
-| --------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `items`               | `any[]`   | `[]`    | The array of data items to render.                                                                                                                                                                            |
-| `itemKey`             | `string`  | `'id'`  | The property name to use as a unique key for each item.                                                                                                                                                       |
-| `estimateHeight`      | `number`  | `50`    | Estimated height of an item in pixels. Used for initial calculations.                                                                                                                                         |
-| `overscan`            | `number`  | `200`   | Extra buffer in pixels to render above/below viewport.                                                                                                                                                        |
-| `maintainBottom`      | `boolean` | `true`  | Whether to keep the scroll position pinned to the bottom when new items are added.                                                                                                                            |
-| `loadingHistory`      | `boolean` | `false` | Whether history is currently loading (affects prepend behavior).                                                                                                                                              |
-| `tailCount`           | `number`  | `0`     | Number of items at the bottom to always keep rendered when near the end. Combined with `maxWindow` for optimal performance.                                                                                   |
-| `paddingBottom`       | `number`  | `0`     | Extra padding at the bottom of the scrollable area in pixels. Useful for clearing floating elements like input bars.                                                                                          |
-| `paddingTop`          | `number`  | `0`     | Extra padding at the top of the scrollable area in pixels.                                                                                                                                                    |
-| `bottomThreshold`     | `number`  | `3`     | Distance in pixels from the bottom to report as "at bottom" (e.g., for hiding "Scroll to Bottom" buttons). **Note:** This does NOT affect the auto-scroll lock, which is controlled by `autoscrollThreshold`. |
-| `autoscrollThreshold` | `number`  | `10`    | Distance in pixels from the bottom to consider "locked" for auto-scrolling.                                                                                                                                   |
+| Prop                  | Type                                      | Default | Description                                                                                                      |
+| --------------------- | ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `items`               | `T[]`                                     | —       | The array of data items to render.                                                                               |
+| `itemKey`             | `keyof T \| ((item: T) => string \| number)` | —       | Required stable, unique key accessor.                                                                            |
+| `estimateHeight`      | `number`                                  | `50`    | Estimated row height in pixels.                                                                                  |
+| `overscan`            | `number`                                  | `200`   | Extra pixels of mounted rows above and below the viewport.                                                       |
+| `prefetchOverscan`    | `number`                                  | `0`     | Extra pixels used only for `prefetchRange`; it never mounts rows or changes track height.                        |
+| `maintainBottom`      | `boolean`                                 | `true`  | Follows new tail content unless the user is browsing.                                                            |
+| `loadingHistory`      | `boolean`                                 | `false` | Enables measured prepend handling.                                                                              |
+| `tailCount`           | `number`                                  | `0`     | Number of tail rows kept mounted when the overscanned range reaches the tail.                                    |
+| `paddingBottom`       | `number`                                  | `0`     | Extra scroll-track padding below the rows.                                                                       |
+| `paddingTop`          | `number`                                  | `0`     | Extra scroll-track padding above the rows.                                                                       |
+| `bottomThreshold`     | `number`                                  | `3`     | Maximum distance used to report the physical bottom.                                                            |
+| `autoscrollThreshold` | `number`                                  | `10`    | Upward distance that breaks bottom-following intent.                                                             |
+| `mutationMode`        | `'append-prepend' \| 'arbitrary'`         | `'append-prepend'` | Selects streaming fast paths or full keyed reconciliation.                                         |
+| `contentKey`          | `string \| number`                        | —       | Content epoch; changing it cancels stale work, resets measurements, and establishes the initial position.       |
 
 ### Slots
 
@@ -203,11 +208,12 @@ jumpTo('message-123', { align: 'center' });
 
 ### Events
 
-| Event         | Payload                                                 | Description                                              |
-| ------------- | ------------------------------------------------------- | -------------------------------------------------------- |
-| `reachTop`    | -                                                       | Emitted when the user scrolls to the top of the list.    |
-| `reachBottom` | -                                                       | Emitted when the user scrolls to the bottom of the list. |
-| `scroll`      | `{ scrollTop, scrollHeight, clientHeight, isAtBottom }` | Emitted when the scroll position changes.                |
+| Event           | Payload                                                 | Description                                                        |
+| --------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| `reachTop`      | —                                                       | Emitted once when crossing into the top boundary.                  |
+| `reachBottom`   | —                                                       | Emitted once when crossing into the bottom boundary.               |
+| `scroll`        | `{ scrollTop, scrollHeight, clientHeight, isAtBottom }` | Emitted at most once per animation frame.                           |
+| `prefetchRange` | `{ startIndex, endIndex }`                              | Key-index range to warm without changing the rendered row window.  |
 
 ### Methods (Exposed via ref)
 
@@ -217,6 +223,7 @@ jumpTo('message-123', { align: 'center' });
 | `scrollToIndex`       | `(index: number, options?: { align?: 'start' \| 'center' \| 'end', smooth?: boolean })`         | Scrolls to a specific item index.                               |
 | `scrollToItemKey`     | `(key: string \| number, options?: { align?: 'start' \| 'center' \| 'end', smooth?: boolean })` | Scrolls to a specific item by its key.                          |
 | `refreshMeasurements` | `()`                                                                                            | Forces a re-measurement of all items.                           |
+| `reset`                | `()`                                                                                            | Clears measurements and re-establishes the initial position.    |
 | `isAtBottom`          | `boolean`                                                                                       | Property indicating if the scroller is currently at the bottom. |
 
 ## Recipes

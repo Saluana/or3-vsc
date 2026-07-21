@@ -275,6 +275,7 @@ describe('Or3Scroll', () => {
                 itemKey: (item: any) => item.id,
                 estimateHeight: 50,
                 overscan: 0,
+                maintainBottom: false,
             },
             attachTo: document.body,
         });

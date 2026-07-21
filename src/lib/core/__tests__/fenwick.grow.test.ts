@@ -22,9 +22,9 @@ describe('FenwickTree - grow behavior', () => {
     // Check that old queries still work
     const query4After = tree.query(4);
     const query9After = tree.query(9);
-    console.log('query(4) before:', query4Before, 'after:', query4After);
-    console.log('query(9) before:', query9Before, 'after:', query9After);
-    console.log('total after grow (before adding new):', tree.total());
+    expect(query4After).toBe(query4Before);
+    expect(query9After).toBe(query9Before);
+    expect(tree.total()).toBe(totalBefore);
     
     // Add values for new indices
     for (let i = 10; i < 100; i++) {
@@ -32,7 +32,6 @@ describe('FenwickTree - grow behavior', () => {
     }
     
     const totalAfter = tree.total();
-    console.log('total after adding new indices:', totalAfter);
     expect(totalAfter).toBe(575 + 90 * 50); // Should be 5075
   });
 

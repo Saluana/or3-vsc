@@ -17,6 +17,16 @@ describe('FenwickTree', () => {
     expect(ft.total()).toBe(15);
   });
 
+  it('should preserve prefixes when building fewer values than capacity', () => {
+    const ft = new FenwickTree(8);
+    ft.build([1, 2, 3]);
+
+    expect(ft.query(2)).toBe(6);
+    expect(ft.query(3)).toBe(6);
+    expect(ft.total()).toBe(6);
+    expect(ft.lowerBound(2)).toBe(1);
+  });
+
   it('should update values', () => {
     const ft = new FenwickTree(5);
     ft.build(new Float64Array([1, 1, 1, 1, 1]));
@@ -50,5 +60,14 @@ describe('FenwickTree', () => {
     ft.resize(4, new Float64Array([10, 20, 30, 40]));
     expect(ft.total()).toBe(100);
     expect(ft.query(2)).toBe(60);
+  });
+
+  it('rejects invalid capacities and indices instead of hanging', () => {
+    expect(() => new FenwickTree(1.5)).toThrow(RangeError);
+    const ft = new FenwickTree(8);
+
+    expect(() => ft.query(0.5)).toThrow(RangeError);
+    expect(() => ft.update(0.5, 1)).toThrow(RangeError);
+    expect(() => ft.query(8)).toThrow(RangeError);
   });
 });

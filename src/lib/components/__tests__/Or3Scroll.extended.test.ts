@@ -159,14 +159,14 @@ describe('Or3Scroll - Extended Component Tests', () => {
             await nextTick(); // Extra tick for scrollToBottom
 
             // scrollToBottom should have been called due to maintainBottom
-            // The mock returns scrollHeight=5000, clientHeight=400, so bottom = 4600
-            // This tests that scrollToBottom was called (scrollTop increased from 600)
+            // The committed virtual track is the source of truth for bottom
+            // positioning, rather than a potentially stale DOM scrollHeight.
             const finalScrollTop = container.scrollTop;
 
             // Should have scrolled down (increased scrollTop) to stay at bottom
             expect(finalScrollTop).toBeGreaterThan(scrollTopBeforeAppend);
-            // Should be at DOM bottom (scrollHeight - clientHeight = 5000 - 400 = 4600)
-            expect(finalScrollTop).toBe(5000 - 400);
+            // 30 estimated rows * 50px - the 400px viewport = 1100px.
+            expect(finalScrollTop).toBe(1100);
 
             wrapper.unmount();
         });

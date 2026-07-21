@@ -11,8 +11,23 @@ export class FenwickTree {
   private capacity: number;
 
   constructor(capacity: number) {
+    FenwickTree.assertCapacity(capacity);
     this.capacity = capacity;
     this.tree = new Float64Array(capacity + 1);
+  }
+
+  private static assertCapacity(capacity: number): void {
+    if (!Number.isSafeInteger(capacity) || capacity < 0) {
+      throw new RangeError('FenwickTree capacity must be a non-negative safe integer.');
+    }
+  }
+
+  private assertIndex(index: number): void {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= this.capacity) {
+      throw new RangeError(
+        `FenwickTree index must be an integer between 0 and ${Math.max(0, this.capacity - 1)}.`
+      );
+    }
   }
 
   /**
@@ -25,6 +40,7 @@ export class FenwickTree {
    * @param values Optional array of current values to rebuild the tree from scratch (faster than incremental updates)
    */
   resize(newCapacity: number, values?: Float64Array | number[]): void {
+    FenwickTree.assertCapacity(newCapacity);
     if (newCapacity === this.capacity && !values) return;
 
     this.capacity = newCapacity;
@@ -39,6 +55,7 @@ export class FenwickTree {
    * Grows the tree preserving existing sums. No-op if newCapacity <= current capacity.
    */
   grow(newCapacity: number): void {
+    FenwickTree.assertCapacity(newCapacity);
     if (newCapacity <= this.capacity) return;
     
     // Extract current values by computing differences
@@ -61,16 +78,21 @@ export class FenwickTree {
    * Builds the tree from an array of values in O(n)
    */
   build(values: Float64Array | number[]): void {
+    this.tree.fill(0);
     const n = Math.min(this.capacity, values.length);
     // Initialize tree with values (1-based)
     for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(values[i])) {
+        throw new RangeError('FenwickTree values must be finite.');
+      }
       this.tree[i + 1] = values[i];
     }
 
-    // Propagate sums
-    for (let i = 1; i <= n; i++) {
+    // Propagate through the complete capacity. Zero-valued tail cells still
+    // need their ancestors populated when `values` is shorter than capacity.
+    for (let i = 1; i <= this.capacity; i++) {
       const parent = i + (i & -i);
-      if (parent <= n) {
+      if (parent <= this.capacity) {
         this.tree[parent] += this.tree[i];
       }
     }
@@ -82,6 +104,10 @@ export class FenwickTree {
    * @param delta Change in value
    */
   update(index: number, delta: number): void {
+    this.assertIndex(index);
+    if (!Number.isFinite(delta)) {
+      throw new RangeError('FenwickTree update delta must be finite.');
+    }
     let i = index + 1; // Convert to 1-based
     while (i <= this.capacity) {
       this.tree[i] += delta;
@@ -94,6 +120,7 @@ export class FenwickTree {
    * @param index 0-based index
    */
   query(index: number): number {
+    this.assertIndex(index);
     let sum = 0;
     let i = index + 1; // Convert to 1-based
     while (i > 0) {
@@ -155,5 +182,9 @@ export class FenwickTree {
   total(): number {
     if (this.capacity === 0) return 0;
     return this.query(this.capacity - 1);
+  }
+
+  getCapacity(): number {
+    return this.capacity;
   }
 }
