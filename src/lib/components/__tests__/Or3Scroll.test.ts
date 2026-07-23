@@ -154,7 +154,7 @@ describe('Or3Scroll', () => {
         rectSpy.mockRestore();
     });
 
-    it('compensates prepend with measured heights when loadingHistory', async () => {
+    it('compensates prepend with estimates without duplicating production rows', async () => {
         const rectSpy = vi
             .spyOn(window.HTMLElement.prototype, 'getBoundingClientRect')
             .mockReturnValue({
@@ -193,20 +193,17 @@ describe('Or3Scroll', () => {
             loadingHistory: true,
         });
 
-        // Watcher is async and uses measureItems which uses nextTick.
-        // We need to wait enough ticks for the async flow to complete.
-        await new Promise((resolve) => setTimeout(resolve, 50));
         await nextTick();
 
-        // Re-find container in case it was replaced (unlikely but safer)
         const updatedContainer = wrapper.find('.or3-scroll');
         expect(updatedContainer.element.scrollTop).toBeGreaterThan(
             initialScrollTop
         );
         expect(updatedContainer.element.scrollTop).toBeCloseTo(
-            prepend.length * 30,
+            prepend.length * 50,
             1
         );
+        expect(wrapper.find('.or3-scroll-hidden-pool').exists()).toBe(false);
 
         rectSpy.mockRestore();
     });

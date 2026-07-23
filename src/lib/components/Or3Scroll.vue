@@ -82,9 +82,12 @@ let scrollMode: ScrollMode = props.maintainBottom
 let internalScrollOwner: InternalScrollOwner = null;
 let internalScrollTarget: number | null = null;
 let isUserScrolling = false;
+let isTouchActive = false;
+let suppressNativeScrollEndUntil = 0;
 let isMounted = false;
 let isDestroyed = false;
 let scrollFrame = 0;
+let scrollFrameGeneration = 0;
 let resetFrameOne = 0;
 let resetFrameTwo = 0;
 let userScrollEndTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -159,7 +162,31 @@ const rebuildIndex = () => {
     currentKeys.forEach((key, index) => indexByKey.set(key, index));
 };
 
-type Anchor = { key: ItemKey; withinItem: number };
+type AnchorPoint = {
+    key: ItemKey;
+    withinItem: number;
+    index: number;
+};
+
+type Anchor = {
+    candidates: AnchorPoint[];
+};
+
+const captureModelAnchor = (): Anchor | null => {
+    if (currentKeys.length === 0) return null;
+    if (container.value) latestScrollTop = container.value.scrollTop;
+    const contentScrollTop = latestScrollTop - props.paddingTop;
+    const index = engine.findIndexForOffset(Math.max(0, contentScrollTop));
+    const key = currentKeys[index];
+    if (key === undefined) return null;
+    return {
+        candidates: [{
+            key,
+            withinItem: contentScrollTop - engine.getOffsetForIndex(index),
+            index,
+        }],
+    };
+};
 
 const captureAnchor = (): Anchor | null => {
     if (currentKeys.length === 0) return null;
@@ -170,9 +197,7 @@ const captureAnchor = (): Anchor | null => {
             viewport.height > 0 &&
             Math.abs(viewport.height - container.value.clientHeight) < 2
         ) {
-            let visibleAnchor:
-                | { key: ItemKey; top: number; withinItem: number }
-                | undefined;
+            const visibleAnchors: Array<AnchorPoint & { top: number }> = [];
             for (const [key, element] of itemElements) {
                 const rect = element.getBoundingClientRect();
                 if (
@@ -181,30 +206,28 @@ const captureAnchor = (): Anchor | null => {
                 ) {
                     continue;
                 }
-                if (!visibleAnchor || rect.top < visibleAnchor.top) {
-                    visibleAnchor = {
-                        key,
-                        top: rect.top,
-                        withinItem: viewport.top - rect.top,
-                    };
-                }
+                const index = indexByKey.get(key);
+                if (index === undefined) continue;
+                visibleAnchors.push({
+                    key,
+                    top: rect.top,
+                    withinItem: viewport.top - rect.top,
+                    index,
+                });
             }
-            if (visibleAnchor) {
+            if (visibleAnchors.length > 0) {
+                visibleAnchors.sort((a, b) => a.top - b.top);
                 return {
-                    key: visibleAnchor.key,
-                    withinItem: visibleAnchor.withinItem,
+                    candidates: visibleAnchors.map((anchor) => ({
+                        key: anchor.key,
+                        withinItem: anchor.withinItem,
+                        index: anchor.index,
+                    })),
                 };
             }
         }
     }
-    const contentScrollTop = latestScrollTop - props.paddingTop;
-    const index = engine.findIndexForOffset(Math.max(0, contentScrollTop));
-    const key = currentKeys[index];
-    if (key === undefined) return null;
-    return {
-        key,
-        withinItem: contentScrollTop - engine.getOffsetForIndex(index),
-    };
+    return captureModelAnchor();
 };
 
 const setCommittedTrackHeight = (height: number) => {
@@ -239,12 +262,22 @@ const applyScrollTop = (
 
 const restoreAnchor = (anchor: Anchor | null) => {
     if (!anchor || !container.value) return;
-    const index = indexByKey.get(anchor.key);
-    if (index === undefined) return;
+    let selected:
+        | { point: AnchorPoint; index: number; displacement: number }
+        | undefined;
+    for (const point of anchor.candidates) {
+        const index = indexByKey.get(point.key);
+        if (index === undefined) continue;
+        const displacement = Math.abs(index - point.index);
+        if (!selected || displacement < selected.displacement) {
+            selected = { point, index, displacement };
+        }
+    }
+    if (!selected) return;
     const next =
         props.paddingTop +
-        engine.getOffsetForIndex(index) +
-        anchor.withinItem;
+        engine.getOffsetForIndex(selected.index) +
+        selected.point.withinItem;
     if (Math.abs(next - container.value.scrollTop) < MEASUREMENT_EPSILON) return;
     const previousMode = scrollMode;
     scrollMode = 'compensatingLayout';
@@ -383,12 +416,19 @@ const refreshStructuralScrollState = () => {
 };
 
 const finishScrolling = () => {
+    if (scrollFrame) {
+        scrollFrameGeneration++;
+        cancelFrame(scrollFrame);
+        scrollFrame = 0;
+        processScrollFrame();
+    }
     if (userScrollEndTimeout) {
         clearTimeout(userScrollEndTimeout);
         userScrollEndTimeout = null;
     }
     const endedUserControl = isUserScrolling;
     isUserScrolling = false;
+    suppressNativeScrollEndUntil = 0;
     if (container.value) {
         latestScrollTop = container.value.scrollTop;
         updateScrollState(0, true);
@@ -406,13 +446,25 @@ const finishScrolling = () => {
     }
     internalScrollOwner = null;
     internalScrollTarget = null;
-    commitModelHeight(captureAnchor(), scrollMode === 'followingBottom');
+    const modelHeight = engine.getTotalHeight();
+    const hasUncommittedLayout =
+        Math.abs(committedTrackHeight.value - modelHeight) >=
+        MEASUREMENT_EPSILON;
+    if (hasUncommittedLayout) {
+        commitModelHeight(
+            captureAnchor(),
+            scrollMode === 'followingBottom'
+        );
+    }
     refreshStructuralScrollState();
 };
 
 const scheduleScrollEnd = () => {
     if (userScrollEndTimeout) clearTimeout(userScrollEndTimeout);
-    userScrollEndTimeout = setTimeout(finishScrolling, USER_SCROLL_END_DELAY);
+    userScrollEndTimeout = setTimeout(() => {
+        userScrollEndTimeout = null;
+        if (!isTouchActive) finishScrolling();
+    }, USER_SCROLL_END_DELAY);
 };
 
 const processScrollFrame = () => {
@@ -450,7 +502,11 @@ const processScrollFrame = () => {
 
 const scheduleScrollFrame = () => {
     if (scrollFrame || isDestroyed) return;
-    scrollFrame = requestFrame(processScrollFrame);
+    const generation = ++scrollFrameGeneration;
+    scrollFrame = requestFrame(() => {
+        if (generation !== scrollFrameGeneration) return;
+        processScrollFrame();
+    });
 };
 
 const onScroll = () => {
@@ -460,6 +516,11 @@ const onScroll = () => {
 };
 
 const onUserScrollStart = () => {
+    if (internalScrollOwner === 'jump') {
+        // A cancelled smooth jump can emit more than one stale scrollend.
+        // Ignore all of them until the user-gesture fallback owns completion.
+        suppressNativeScrollEndUntil = Date.now() + USER_SCROLL_END_DELAY;
+    }
     isUserScrolling = true;
     internalScrollOwner = null;
     internalScrollTarget = null;
@@ -467,6 +528,17 @@ const onUserScrollStart = () => {
     if (!isAtBottom.value) scrollMode = 'userBrowsing';
     cancelResetFrames();
     scheduleScrollEnd();
+};
+
+const onTouchStart = () => {
+    isTouchActive = true;
+    onUserScrollStart();
+};
+
+const onTouchEnd = () => {
+    if (!isTouchActive) return;
+    isTouchActive = false;
+    if (isUserScrolling || internalScrollOwner === 'jump') scheduleScrollEnd();
 };
 
 const onKeyDown = (event: KeyboardEvent) => {
@@ -479,7 +551,12 @@ const onKeyDown = (event: KeyboardEvent) => {
     }
 };
 
-const onNativeScrollEnd = () => finishScrolling();
+const onNativeScrollEnd = () => {
+    if (isTouchActive) return;
+    if (isUserScrolling && Date.now() < suppressNativeScrollEndUntil) return;
+    if (!scrollFrame && !isUserScrolling && internalScrollOwner !== 'jump') return;
+    finishScrolling();
+};
 
 type MeasureRecord = { item: T; index: number; key: ItemKey };
 const itemsToMeasure = shallowRef<MeasureRecord[]>([]);
@@ -548,6 +625,7 @@ const setItemRef = (_index: number, item: T) => {
             const previous = itemElements.get(key);
             if (previous) resizeObserverManager.unobserve(previous);
             itemElements.delete(key);
+            itemRefSetters.delete(key);
         }
     };
     itemRefSetters.set(key, setter);
@@ -577,7 +655,9 @@ const flushUpdates = () => {
     isUpdatePending = false;
     if (pendingUpdates.size === 0 || isDestroyed) return;
     if (container.value) latestScrollTop = container.value.scrollTop;
-    const anchor = captureAnchor();
+    // ResizeObserver runs after layout. Capture from the old engine model so
+    // an above-viewport resize restores the position from before that layout.
+    const anchor = captureModelAnchor();
     let changed = false;
     for (const [key, height] of pendingUpdates) {
         const index = indexByKey.get(key);
@@ -673,9 +753,10 @@ const prependItems = async (items: readonly T[], count: number, generation: numb
         index,
         key: getItemKey(item),
     }));
-    const heights = props.loadingHistory
-        ? await measureRecords(records)
-        : records.map((record) => heightByKey.get(record.key) ?? NaN);
+    // Do not mount the production row slot a second time just to measure a
+    // history page. Insert cached heights/estimates and let visible observers
+    // converge without defeating virtualization or repeating slot side effects.
+    const heights = records.map((record) => heightByKey.get(record.key) ?? NaN);
     if (isDestroyed || generation !== contentGeneration) return;
     const anchor = captureAnchor();
     records.forEach((record, index) => {
@@ -796,6 +877,16 @@ const resetForNewContent = () => {
     contentGeneration++;
     measurementGeneration++;
     jumpGeneration++;
+    scrollFrameGeneration++;
+    cancelFrame(scrollFrame);
+    scrollFrame = 0;
+    if (userScrollEndTimeout) {
+        clearTimeout(userScrollEndTimeout);
+        userScrollEndTimeout = null;
+    }
+    isUserScrolling = false;
+    isTouchActive = false;
+    suppressNativeScrollEndUntil = 0;
     cancelResetFrames();
     pendingUpdates.clear();
     itemsToMeasure.value = [];
@@ -988,7 +1079,9 @@ onUnmounted(() => {
     contentGeneration++;
     measurementGeneration++;
     jumpGeneration++;
+    scrollFrameGeneration++;
     cancelFrame(scrollFrame);
+    scrollFrame = 0;
     cancelResetFrames();
     if (userScrollEndTimeout) clearTimeout(userScrollEndTimeout);
     containerResizeObserver?.disconnect();
@@ -1080,7 +1173,9 @@ defineExpose({
         ref="container"
         class="or3-scroll"
         @scroll.passive="onScroll"
-        @touchstart.passive="onUserScrollStart"
+        @touchstart.passive="onTouchStart"
+        @touchend.passive="onTouchEnd"
+        @touchcancel.passive="onTouchEnd"
         @mousedown.passive="onUserScrollStart"
         @wheel.passive="onUserScrollStart"
         @keydown="onKeyDown"
@@ -1095,10 +1190,15 @@ defineExpose({
             }"
         >
             <div
+                v-if="loadingHistory"
+                class="or3-scroll-prepend-loading"
+            >
+                <slot name="prepend-loading" />
+            </div>
+            <div
                 class="or3-scroll-slice"
                 :style="{ transform: `translateY(${offsetY + paddingTop}px)` }"
             >
-                <slot v-if="loadingHistory" name="prepend-loading" />
                 <template
                     v-for="(item, i) in visibleItems"
                     :key="getItemKey(item)"
@@ -1115,7 +1215,7 @@ defineExpose({
 
             <!-- Hidden Measurement Pool -->
             <div
-                v-if="loadingHistory || itemsToMeasure.length"
+                v-if="itemsToMeasure.length"
                 class="or3-scroll-hidden-pool"
                 aria-hidden="true"
             >
@@ -1164,6 +1264,14 @@ defineExpose({
     left: 0;
     width: 100%;
     will-change: transform;
+}
+
+.or3-scroll-prepend-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1;
 }
 
 .or3-scroll-item {

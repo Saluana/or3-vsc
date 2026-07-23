@@ -194,6 +194,54 @@ describe('Or3Scroll hardening behavior', () => {
         wrapper.unmount();
     });
 
+    it('does not jump to the top when the first visible row is promoted', async () => {
+        const initial = items.slice(0, 30);
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: initial,
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 1000,
+                maintainBottom: false,
+                mutationMode: 'arbitrary',
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        element.scrollTop = 500;
+        element.getBoundingClientRect = () =>
+            ({
+                top: 0,
+                bottom: 200,
+                height: 200,
+            }) as DOMRect;
+        for (const item of wrapper.findAll('.or3-scroll-item')) {
+            const row = item.element as HTMLElement;
+            const index = Number(row.dataset.index);
+            row.getBoundingClientRect = () => {
+                const top = index * 50 - element.scrollTop;
+                return {
+                    top,
+                    bottom: top + 50,
+                    height: 50,
+                } as DOMRect;
+            };
+        }
+        element.dispatchEvent(new Event('scroll'));
+        await nextTick();
+
+        const promoted = initial[10];
+        await wrapper.setProps({
+            items: [promoted, ...initial.filter((item) => item !== promoted)],
+        });
+        await nextTick();
+
+        expect(element.scrollTop).toBe(500);
+        wrapper.unmount();
+    });
+
     it('subtracts top padding from rendered and prefetched content offsets', async () => {
         const wrapper = mount(Or3Scroll, {
             props: {
@@ -319,6 +367,54 @@ describe('Or3Scroll hardening behavior', () => {
         await nextTick();
 
         expect(element.scrollTop).toBe(500);
+        wrapper.unmount();
+    });
+
+    it('does not compensate an unchanged layout when user scrolling ends', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: items.slice(0, 20),
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 1000,
+                maintainBottom: false,
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        element.scrollTop = 300;
+        element.getBoundingClientRect = () =>
+            ({
+                top: 0,
+                bottom: 200,
+                height: 200,
+            }) as DOMRect;
+        for (const item of wrapper.findAll('.or3-scroll-item')) {
+            const row = item.element as HTMLElement;
+            const index = Number(row.dataset.index);
+            row.getBoundingClientRect = () => {
+                const top = index * 50 - element.scrollTop + 8;
+                return {
+                    top,
+                    bottom: top + 50,
+                    height: 50,
+                } as DOMRect;
+            };
+        }
+
+        element.dispatchEvent(new WheelEvent('wheel', { deltaY: 300 }));
+        element.dispatchEvent(new Event('scroll'));
+        await nextTick();
+        element.dispatchEvent(new Event('scrollend'));
+        await nextTick();
+        const compensatedTop = element.scrollTop;
+        expect(compensatedTop).toBe(300);
+
+        element.dispatchEvent(new Event('scrollend'));
+        await nextTick();
+        expect(element.scrollTop).toBe(compensatedTop);
         wrapper.unmount();
     });
 
@@ -480,6 +576,242 @@ describe('Or3Scroll hardening behavior', () => {
         // is part of both coordinate conversions and must not create drift.
         expect(element.scrollTop).toBe(325);
         wrapper.unmount();
+    });
+
+    it('anchors resize compensation to the pre-layout virtualizer model', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: items.slice(0, 20),
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 1000,
+                maintainBottom: false,
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        element.scrollTop = 300;
+        let browserLayoutShift = 0;
+        element.getBoundingClientRect = () =>
+            ({ top: 0, bottom: 200, height: 200 }) as DOMRect;
+        for (const item of wrapper.findAll('.or3-scroll-item')) {
+            const row = item.element as HTMLElement;
+            const index = Number(row.dataset.index);
+            row.getBoundingClientRect = () => {
+                const top = index * 50 - element.scrollTop + browserLayoutShift;
+                return { top, bottom: top + 50, height: 50 } as DOMRect;
+            };
+        }
+        element.dispatchEvent(new Event('scroll'));
+        await nextTick();
+
+        const firstRowObserver = observeMock.mock.calls.find(
+            ([observed]) => (observed as HTMLElement).dataset.index === '0'
+        );
+        browserLayoutShift = 25;
+        firstRowObserver?.[1]({
+            borderBoxSize: [{ blockSize: 75 }],
+        } as unknown as ResizeObserverEntry);
+        await nextTick();
+
+        expect(element.scrollTop).toBe(325);
+        wrapper.unmount();
+    });
+
+    it('clears old interaction state when contentKey resets the list', async () => {
+        const first = items.slice(0, 10);
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: first,
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 1000,
+                maintainBottom: false,
+                contentKey: 'thread-a',
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        element.dispatchEvent(new WheelEvent('wheel', { deltaY: 20 }));
+
+        await wrapper.setProps({
+            contentKey: 'thread-b',
+            items: items.slice(20, 30),
+        });
+        await nextTick();
+        const resetObserveCount = observeMock.mock.calls.length;
+        const resetRowObserver = observeMock.mock.calls
+            .slice(0, resetObserveCount)
+            .reverse()
+            .find(([observed]) => (observed as HTMLElement).dataset.index === '0');
+        resetRowObserver?.[1]({
+            borderBoxSize: [{ blockSize: 75 }],
+        } as unknown as ResizeObserverEntry);
+        await nextTick();
+
+        expect(wrapper.find('.or3-scroll-track').attributes('style')).toContain(
+            'height: 525px'
+        );
+        wrapper.unmount();
+    });
+
+    it('releases row ref callbacks when virtual rows unmount', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 0,
+                maintainBottom: false,
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        const firstCallback = observeMock.mock.calls.find(
+            ([observed]) => (observed as HTMLElement).dataset.index === '0'
+        )?.[1];
+
+        element.scrollTop = 1000;
+        element.dispatchEvent(new Event('scroll'));
+        await nextTick();
+        await nextTick();
+        element.scrollTop = 0;
+        element.dispatchEvent(new Event('scroll'));
+        await nextTick();
+        await nextTick();
+
+        const callbacksForFirstRow = observeMock.mock.calls
+            .filter(([observed]) => (observed as HTMLElement).dataset.index === '0')
+            .map(([, callback]) => callback);
+        expect(callbacksForFirstRow[callbacksForFirstRow.length - 1]).not.toBe(
+            firstCallback
+        );
+        wrapper.unmount();
+    });
+
+    it('does not mount a full hidden copy of a prepended history page', async () => {
+        const initial = items.slice(50, 70);
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: initial,
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                overscan: 0,
+                loadingHistory: true,
+                maintainBottom: false,
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+        const prepend = Array.from({ length: 1000 }, (_, id) => ({
+            id: 1000 + id,
+            text: `history-${id}`,
+        }));
+
+        await wrapper.setProps({ items: [...prepend, ...initial] });
+        await nextTick();
+
+        expect(wrapper.find('.or3-scroll-hidden-pool').exists()).toBe(false);
+        expect(wrapper.findAll('.or3-scroll-item').length).toBeLessThan(20);
+        wrapper.unmount();
+    });
+
+    it('renders the prepend loader outside the translated slice', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: items.slice(0, 20),
+                itemKey: 'id' as never,
+                loadingHistory: true,
+                maintainBottom: false,
+            },
+            slots: {
+                'prepend-loading': '<div data-test="loader">Loading</div>',
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+
+        const loader = wrapper.find('.or3-scroll-prepend-loading');
+        expect(loader.exists()).toBe(true);
+        expect(loader.element.parentElement).toBe(
+            wrapper.find('.or3-scroll-track').element
+        );
+        expect(wrapper.find('.or3-scroll-slice [data-test="loader"]').exists()).toBe(
+            false
+        );
+        wrapper.unmount();
+    });
+
+    it('finishes same-frame scroll work before native scrollend commits', async () => {
+        const initial = items.slice(0, 20);
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items: initial,
+                itemKey: 'id' as never,
+                estimateHeight: 50,
+                maintainBottom: false,
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+        const element = wrapper.find('.or3-scroll').element as HTMLElement;
+        element.scrollTop = 300;
+        element.dispatchEvent(new Event('scroll'));
+        element.dispatchEvent(new Event('scrollend'));
+
+        await wrapper.setProps({ items: initial.slice(0, 10) });
+        await nextTick();
+
+        expect(wrapper.find('.or3-scroll-track').attributes('style')).toContain(
+            'height: 500px'
+        );
+        wrapper.unmount();
+    });
+
+    it('does not finish touch scrolling until the touch is released', async () => {
+        vi.useFakeTimers();
+        try {
+            const initial = items.slice(0, 20);
+            const wrapper = mount(Or3Scroll, {
+                props: {
+                    items: initial,
+                    itemKey: 'id' as never,
+                    estimateHeight: 50,
+                    overscan: 1000,
+                    maintainBottom: false,
+                },
+                attachTo: document.body,
+            });
+            await nextTick();
+            const element = wrapper.find('.or3-scroll').element as HTMLElement;
+            element.dispatchEvent(new TouchEvent('touchstart'));
+            await vi.advanceTimersByTimeAsync(200);
+
+            const firstRowObserver = observeMock.mock.calls.find(
+                ([observed]) => (observed as HTMLElement).dataset.index === '0'
+            );
+            firstRowObserver?.[1]({
+                borderBoxSize: [{ blockSize: 75 }],
+            } as unknown as ResizeObserverEntry);
+            await nextTick();
+            expect(wrapper.find('.or3-scroll-track').attributes('style')).toContain(
+                'height: 1000px'
+            );
+
+            element.dispatchEvent(new TouchEvent('touchend'));
+            await vi.advanceTimersByTimeAsync(140);
+            await nextTick();
+            expect(wrapper.find('.or3-scroll-track').attributes('style')).toContain(
+                'height: 1025px'
+            );
+            wrapper.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('treats maintainBottom=false as a suspension until physically at bottom', async () => {
