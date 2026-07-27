@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] - 2026-07-27
+
+### Changed
+
+-   Promotes the tested 0.1.0 release-candidate line to a stable release.
+
+### Added
+
+-   Keyed arbitrary-mutation reconciliation, content epochs, media prefetching,
+    and explicit bottom-following, browsing, jump, and layout-compensation modes.
+
+### Fixed
+
+-   Hardens SSR imports, dynamic-height compensation, cancellable jumps,
+    mutation handling, virtualizer input validation, and browsing anchors.
+
 ## [0.1.0-rc.3] - 2026-07-21
 
 ### Fixed
