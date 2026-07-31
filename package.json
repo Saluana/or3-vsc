@@ -8,6 +8,10 @@
     "description": "A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-anchored layouts, streaming content, and dynamic item heights.",
     "license": "MIT",
     "type": "module",
+    "engines": {
+        "node": ">=24"
+    },
+    "packageManager": "bun@1.3.14",
     "files": [
         "dist",
         "README.md",
@@ -43,7 +47,7 @@
     "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@microsoft/api-extractor": "^7.58.12",
-        "@types/node": "^26.1.1",
+        "@types/node": "^24.10.1",
         "@vitejs/plugin-vue": "^6.0.8",
         "@vue/test-utils": "^2.4.11",
         "ajv": "^8.17.1",
