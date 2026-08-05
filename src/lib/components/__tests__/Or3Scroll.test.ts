@@ -114,6 +114,25 @@ describe('Or3Scroll', () => {
         // But we can check if the function runs without error.
     });
 
+    it('captures and restores a portable keyed scroll state', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                contentKey: 'chat-a',
+            },
+        });
+
+        const vm = wrapper.vm as any;
+        const state = vm.captureScrollState();
+        expect(state).toMatchObject({
+            version: 1,
+            contentKey: 'chat-a',
+            mode: expect.any(String),
+        });
+        await expect(vm.restoreScrollState(state)).resolves.toBeUndefined();
+    });
+
     it('exposes measureItems', async () => {
         const rectSpy = vi
             .spyOn(window.HTMLElement.prototype, 'getBoundingClientRect')

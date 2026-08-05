@@ -2,9 +2,11 @@
 import Or3Scroll from './components/Or3Scroll.vue';
 export { Or3Scroll };
 export type {
+  Or3ScrollAnchorPoint,
   Or3ScrollItemKey,
   Or3ScrollPrefetchRange,
   Or3ScrollProps,
+  Or3ScrollViewState,
 } from './components/types';
 
 // Composables for advanced usage

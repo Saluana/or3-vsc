@@ -15,6 +15,7 @@ import { resizeObserverManager } from '../measurement/observer';
 import type {
     Or3ScrollItemKey,
     Or3ScrollProps,
+    Or3ScrollViewState,
 } from './types';
 
 type ItemKey = Or3ScrollItemKey;
@@ -1003,6 +1004,54 @@ const scrollToItemKey = (
     if (index !== undefined) scrollToIndex(index, opts);
 };
 
+/**
+ * Capture a portable viewport memento. Consumers can retain it per workspace
+ * tab and restore it after the component has been rebound to the same content.
+ */
+const captureScrollState = (): Or3ScrollViewState => {
+    if (container.value) latestScrollTop = container.value.scrollTop;
+    return {
+        version: 1,
+        contentKey: props.contentKey,
+        mode: isAtBottom.value ? 'bottom' : 'anchor',
+        anchors: captureAnchor()?.candidates.map((candidate) => ({
+            key: candidate.key,
+            withinItem: candidate.withinItem,
+            index: candidate.index,
+        })),
+        scrollTop: latestScrollTop,
+    };
+};
+
+/**
+ * Restore the best available keyed anchor, with an absolute offset as a safe
+ * fallback while rows are still being measured.
+ */
+const restoreScrollState = async (
+    state: Or3ScrollViewState | undefined
+): Promise<void> => {
+    if (!state || state.version !== 1) return;
+    await nextTick();
+    if (!container.value) return;
+    if (state.mode === 'bottom') {
+        scrollToBottom();
+        return;
+    }
+    const candidates = (state.anchors ?? []).filter(
+        (candidate) =>
+            (typeof candidate.key === 'string' ||
+                typeof candidate.key === 'number') &&
+            Number.isFinite(candidate.withinItem) &&
+            Number.isSafeInteger(candidate.index)
+    );
+    if (candidates.length) {
+        restoreAnchor({ candidates });
+    } else {
+        applyScrollTop(state.scrollTop, 'jump');
+    }
+    scheduleScrollFrame();
+};
+
 const refreshMeasurements = () => {
     for (const [key, element] of itemElements) {
         const measured = element.getBoundingClientRect().height;
@@ -1162,6 +1211,8 @@ defineExpose({
     scrollToBottom,
     scrollToIndex,
     scrollToItemKey,
+    captureScrollState,
+    restoreScrollState,
     refreshMeasurements,
     reset,
     isAtBottom,
