@@ -133,6 +133,62 @@ describe('Or3Scroll', () => {
         await expect(vm.restoreScrollState(state)).resolves.toBeUndefined();
     });
 
+    it('restores a browsing anchor without letting later resizes snap to bottom', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                estimateHeight: 50,
+                overscan: 0,
+                maintainBottom: true,
+                mutationMode: 'append-prepend',
+            },
+            attachTo: document.body,
+        });
+        await nextTick();
+
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+        // Start following the bottom, then browse up like a user reading history.
+        container.scrollTop = 4500;
+        await wrapper.find('.or3-scroll').trigger('scroll');
+        await nextTick();
+        await wrapper.find('.or3-scroll').trigger('wheel');
+        container.scrollTop = 1500;
+        await wrapper.find('.or3-scroll').trigger('scroll');
+        await nextTick();
+
+        const vm = wrapper.vm as any;
+        const state = vm.captureScrollState();
+        expect(state.mode).toBe('anchor');
+
+        // Simulate a content-epoch rebind, then restore the retained anchor.
+        vm.reset();
+        await vm.restoreScrollState(state);
+        await nextTick();
+
+        const restoredTop = container.scrollTop;
+        expect(restoredTop).toBeGreaterThan(0);
+        expect(restoredTop).toBeLessThan(4500);
+
+        // A mounted row below the restored viewport grows. Browsing intent must
+        // survive the restore, so the scroller compensates instead of following.
+        const visibleIndex = Number(
+            wrapper.find('.or3-scroll-item').attributes('data-index')
+        );
+        const resizeCallback = observeMock.mock.calls.find(
+            ([element]) =>
+                (element as HTMLElement).dataset.index === String(visibleIndex)
+        )?.[1] as ((entry: unknown) => void) | undefined;
+        expect(resizeCallback).toBeDefined();
+        resizeCallback?.({ borderBoxSize: [{ blockSize: 120 }] });
+
+        await nextTick();
+        await nextTick();
+
+        expect(container.scrollTop).toBeGreaterThanOrEqual(restoredTop);
+        expect(container.scrollTop).toBeLessThan(4500);
+    });
+
     it('exposes measureItems', async () => {
         const rectSpy = vi
             .spyOn(window.HTMLElement.prototype, 'getBoundingClientRect')

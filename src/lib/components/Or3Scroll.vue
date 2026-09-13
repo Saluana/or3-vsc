@@ -1041,6 +1041,18 @@ const restoreScrollState = async (
         scrollToBottom();
         return;
     }
+    // A restored anchor is browsing intent. Cancel any scheduled bottom
+    // placement and stop later layout compensation from re-claiming the
+    // viewport through followingBottom.
+    cancelResetFrames();
+    if (userScrollEndTimeout) {
+        clearTimeout(userScrollEndTimeout);
+        userScrollEndTimeout = null;
+    }
+    isUserScrolling = false;
+    scrollMode = 'userBrowsing';
+    internalScrollOwner = null;
+    internalScrollTarget = null;
     const candidates = (state.anchors ?? []).filter(
         (candidate) =>
             (typeof candidate.key === 'string' ||

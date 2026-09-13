@@ -223,8 +223,10 @@ jumpTo('message-123', { align: 'center' });
 | `scrollToBottom`      | `()`                                                                                            | Scrolls to the bottom of the list.                              |
 | `scrollToIndex`       | `(index: number, options?: { align?: 'start' \| 'center' \| 'end', smooth?: boolean })`         | Scrolls to a specific item index.                               |
 | `scrollToItemKey`     | `(key: string \| number, options?: { align?: 'start' \| 'center' \| 'end', smooth?: boolean })` | Scrolls to a specific item by its key.                          |
+| `captureScrollState`  | `()`                                                                                            | Captures a portable, keyed viewport memento for the current content key. |
+| `restoreScrollState`  | `(state)`                                                                                       | Restores a captured memento. An anchor restore holds browsing intent, cancelling pending bottom placement so later row resizes do not snap the viewport. |
 | `refreshMeasurements` | `()`                                                                                            | Forces a re-measurement of all items.                           |
-| `reset`                | `()`                                                                                            | Clears measurements and re-establishes the initial position.    |
+| `reset`               | `()`                                                                                            | Clears measurements and re-establishes the initial position.    |
 | `isAtBottom`          | `boolean`                                                                                       | Property indicating if the scroller is currently at the bottom. |
 
 ## Recipes
