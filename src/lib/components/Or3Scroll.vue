@@ -39,6 +39,7 @@ const props = withDefaults(defineProps<Or3ScrollProps<T>>(), {
     autoscrollThreshold: 10,
     mutationMode: 'append-prepend',
     contentKey: undefined,
+    rowContentRevision: 0,
 });
 
 const emit = defineEmits<{
@@ -114,6 +115,9 @@ const indexByKey = new Map<ItemKey, number>();
 const heightByKey = new Map<ItemKey, number>();
 
 const visibleItems = computed(() => {
+    // Track the content revision so in-place item replacements at stable keys
+    // refresh the mounted slice without re-running structural reconciliation.
+    void props.rowContentRevision;
     const end = endIndex.value === -1 ? 0 : endIndex.value + 1;
     return props.items.slice(startIndex.value, end);
 });

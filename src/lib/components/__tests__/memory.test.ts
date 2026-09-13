@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import Or3Scroll from '../Or3Scroll.vue';
-import { nextTick } from 'vue';
+import { VirtualizerEngine } from '../../core/virtualizer';
+import { nextTick, toRaw } from 'vue';
 
 // Mock ResizeObserver Manager
 const { observeMock, unobserveMock } = vi.hoisted(() => ({
@@ -80,4 +81,93 @@ describe('Or3Scroll Memory & Cleanup', () => {
     addEventListenerSpy.mockRestore();
     removeEventListenerSpy.mockRestore();
   });
+
+  it.each([100, 10_000])(
+    'keeps revision-only tail updates bounded for %i rows',
+    async (rowCount) => {
+      const clientHeightSpy = vi
+        .spyOn(window.HTMLElement.prototype, 'clientHeight', 'get')
+        .mockReturnValue(500);
+      const elementHeightSpy = vi
+        .spyOn(window.Element.prototype, 'clientHeight', 'get')
+        .mockReturnValue(500);
+
+      const items = Array.from({ length: rowCount }, (_, id) => ({
+        id,
+        text: `Message ${id}`,
+      }));
+      let indexReads = 0;
+      const trackedItems = new Proxy(items, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) {
+            indexReads++;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+
+      const wrapper = mount(Or3Scroll, {
+        props: {
+          items: trackedItems,
+          itemKey: 'id' as never,
+          estimateHeight: 50,
+          overscan: 0,
+          maintainBottom: true,
+          rowContentRevision: 0,
+        },
+        slots: {
+          default:
+            '<template #default="{ item }">{{ item.text }}</template>',
+        },
+        attachTo: document.body,
+      });
+
+      await nextTick();
+      await nextTick();
+      (wrapper.vm as unknown as { scrollToBottom: () => void }).scrollToBottom();
+      await nextTick();
+      await nextTick();
+
+      const replaceHeights = vi.spyOn(
+        VirtualizerEngine.prototype,
+        'replaceHeights'
+      );
+      const bulkInsert = vi.spyOn(VirtualizerEngine.prototype, 'bulkInsert');
+      const setCount = vi.spyOn(VirtualizerEngine.prototype, 'setCount');
+      const stableObjects = items.slice(0, 20);
+      const updates = 10;
+      indexReads = 0;
+
+      try {
+        for (let revision = 1; revision <= updates; revision++) {
+          items[rowCount - 1] = {
+            id: rowCount - 1,
+            text: `Tail ${revision}`,
+          };
+          await wrapper.setProps({ rowContentRevision: revision });
+          await nextTick();
+        }
+
+        expect(toRaw(wrapper.props('items'))).toBe(trackedItems);
+        items.slice(0, 20).forEach((item, index) => {
+          expect(item).toBe(stableObjects[index]);
+        });
+        expect(replaceHeights).not.toHaveBeenCalled();
+        expect(bulkInsert).not.toHaveBeenCalled();
+        expect(setCount).not.toHaveBeenCalled();
+        expect(indexReads).toBeGreaterThan(0);
+        expect(indexReads).toBeLessThanOrEqual(updates * 32);
+        expect(
+          wrapper.find(`.or3-scroll-item[data-index="${rowCount - 1}"]`).text()
+        ).toContain(`Tail ${updates}`);
+      } finally {
+        replaceHeights.mockRestore();
+        bulkInsert.mockRestore();
+        setCount.mockRestore();
+        wrapper.unmount();
+        clientHeightSpy.mockRestore();
+        elementHeightSpy.mockRestore();
+      }
+    }
+  );
 });

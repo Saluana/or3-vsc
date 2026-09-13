@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import Or3Scroll from '../Or3Scroll.vue';
-import { nextTick } from 'vue';
+import { VirtualizerEngine } from '../../core/virtualizer';
+import { nextTick, toRaw } from 'vue';
 
 // Mock ResizeObserver Manager
 const { observeMock, unobserveMock } = vi.hoisted(() => ({
@@ -644,7 +645,7 @@ describe('Or3Scroll - Extended Component Tests', () => {
             await new Promise((resolve) => setTimeout(resolve, 50));
             await nextTick();
 
-            // After item 5 grows by 150px (200-50), if we were anchored at bottom,
+            // After item 5 grows by 150px (200-150), if we were anchored at bottom,
             // scrollTop should increase by 150px to compensate
             // New total height = 500 + 150 = 650, so scrollTop should be 650 - 400 = 250
             // Since we're maintaining bottom, scrollTop should have increased
@@ -654,5 +655,174 @@ describe('Or3Scroll - Extended Component Tests', () => {
 
             wrapper.unmount();
         });
+    });
+
+    describe('2.8 rowContentRevision content contract', () => {
+        const makeItems = () =>
+            Array.from({ length: 100 }, (_, i) => ({
+                id: i,
+                text: `Item ${i}`,
+            }));
+
+        const mountScroller = (
+            liveItems: Array<{ id: number; text: string }>,
+            props: Record<string, unknown> = {}
+        ) =>
+            mount(Or3Scroll, {
+                props: {
+                    items: liveItems,
+                    itemKey: 'id' as any,
+                    estimateHeight: 50,
+                    overscan: 0,
+                    maintainBottom: false,
+                    mutationMode: 'append-prepend',
+                    rowContentRevision: 0,
+                    ...props,
+                },
+                slots: {
+                    default:
+                        '<template #default="{ item }">{{ item.text }}</template>',
+                },
+                attachTo: document.body,
+            });
+
+        it('refreshes a mounted same-key row after a same-array revision change', async () => {
+            const liveItems = makeItems();
+            const wrapper = mountScroller(liveItems);
+            await nextTick();
+
+            const rowBefore = wrapper.find(
+                '.or3-scroll-item[data-index="0"]'
+            );
+            const rowElement = rowBefore.element;
+            expect(rowBefore.text()).toContain('Item 0');
+
+            liveItems[0] = { id: 0, text: 'Replaced zero' };
+            await wrapper.setProps({ rowContentRevision: 1 });
+            await nextTick();
+
+            const rowAfter = wrapper.find('.or3-scroll-item[data-index="0"]');
+            expect(rowAfter.text()).toContain('Replaced zero');
+            expect(rowAfter.element).toBe(rowElement);
+            expect(toRaw(wrapper.props('items') as never)).toBe(liveItems);
+
+            wrapper.unmount();
+        });
+
+        it('refreshes a same-length text change without remounting the row', async () => {
+            const liveItems = makeItems();
+            const wrapper = mountScroller(liveItems);
+            await nextTick();
+
+            const rowBefore = wrapper.find(
+                '.or3-scroll-item[data-index="1"]'
+            );
+            const rowElement = rowBefore.element;
+            const observeCountBefore = observeMock.mock.calls.length;
+
+            // Same character count so no copy/height signal exists.
+            liveItems[1] = { id: 1, text: 'ABCD' };
+            await wrapper.setProps({ rowContentRevision: 1 });
+            await nextTick();
+
+            const rowAfter = wrapper.find('.or3-scroll-item[data-index="1"]');
+            expect(rowAfter.text()).toBe('ABCD');
+            expect(rowAfter.element).toBe(rowElement);
+            expect(observeMock.mock.calls.length).toBe(observeCountBefore);
+
+            wrapper.unmount();
+        });
+
+        it.each(['append-prepend', 'arbitrary'] as const)(
+            'does not run structural reconciliation or reset measurements in %s mode',
+            async (mutationMode) => {
+                const liveItems = makeItems();
+                const wrapper = mountScroller(liveItems, { mutationMode });
+                await nextTick();
+
+                const replaceHeights = vi.spyOn(
+                    VirtualizerEngine.prototype,
+                    'replaceHeights'
+                );
+                const bulkInsert = vi.spyOn(
+                    VirtualizerEngine.prototype,
+                    'bulkInsert'
+                );
+                const setCount = vi.spyOn(
+                    VirtualizerEngine.prototype,
+                    'setCount'
+                );
+                unobserveMock.mockClear();
+
+                try {
+                    liveItems[0] = { id: 0, text: 'Changed zero' };
+                    liveItems[1] = { id: 1, text: 'Changed one' };
+                    await wrapper.setProps({ rowContentRevision: 1 });
+                    await nextTick();
+
+                    expect(wrapper.find('.or3-scroll-item[data-index="0"]').text()).toContain(
+                        'Changed zero'
+                    );
+                    expect(replaceHeights).not.toHaveBeenCalled();
+                    expect(bulkInsert).not.toHaveBeenCalled();
+                    expect(setCount).not.toHaveBeenCalled();
+                    expect(unobserveMock).not.toHaveBeenCalled();
+                    expect(toRaw(wrapper.props('items') as never)).toBe(liveItems);
+                } finally {
+                    replaceHeights.mockRestore();
+                    bulkInsert.mockRestore();
+                    setCount.mockRestore();
+                }
+
+                wrapper.unmount();
+            }
+        );
+
+        it('mounts an offscreen row with its latest content after a revision', async () => {
+            const liveItems = makeItems();
+            const wrapper = mountScroller(liveItems);
+            await nextTick();
+
+            liveItems[50] = { id: 50, text: 'Offscreen updated' };
+            await wrapper.setProps({ rowContentRevision: 1 });
+            await nextTick();
+
+            const container = wrapper.find('.or3-scroll').element as HTMLElement;
+            container.scrollTop = 2500;
+            await container.dispatchEvent(new Event('scroll'));
+            await nextTick();
+            await nextTick();
+
+            const offscreenRow = wrapper.find(
+                '.or3-scroll-item[data-index="50"]'
+            );
+            expect(offscreenRow.exists()).toBe(true);
+            expect(offscreenRow.text()).toContain('Offscreen updated');
+
+            wrapper.unmount();
+        });
+
+        it.each(['append-prepend', 'arbitrary'] as const)(
+            'keeps updating replacement-array callers without the revision prop in %s mode',
+            async (mutationMode) => {
+                const liveItems = makeItems();
+                const wrapper = mountScroller(liveItems.slice(), {
+                    mutationMode,
+                    rowContentRevision: 0,
+                });
+                await nextTick();
+
+                const replacement = liveItems.slice();
+                replacement[0] = { id: 0, text: 'Array replacement' };
+                await wrapper.setProps({ items: replacement });
+                await nextTick();
+
+                expect(
+                    wrapper.find('.or3-scroll-item[data-index="0"]').text()
+                ).toContain('Array replacement');
+
+                wrapper.unmount();
+            }
+        );
     });
 });

@@ -35,6 +35,13 @@ export interface Or3ScrollProps<T> {
     autoscrollThreshold?: number;
     mutationMode?: 'append-prepend' | 'arbitrary';
     contentKey?: Or3ScrollItemKey;
+    /**
+     * Bump this number to invalidate mounted row content when an item is
+     * replaced in a stable `items` array without reassigning the array (for
+     * example, patching a streaming tail). Structural reconciliation still
+     * depends only on `items` and `mutationMode`.
+     */
+    rowContentRevision?: number;
 }
 
 export interface Or3ScrollPrefetchRange {

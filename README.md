@@ -198,6 +198,7 @@ jumpTo('message-123', { align: 'center' });
 | `autoscrollThreshold` | `number`                                  | `10`    | Upward distance that breaks bottom-following intent.                                                             |
 | `mutationMode`        | `'append-prepend' \| 'arbitrary'`         | `'append-prepend'` | Selects streaming fast paths or full keyed reconciliation.                                         |
 | `contentKey`          | `string \| number`                        | —       | Content epoch; changing it cancels stale work, resets measurements, and establishes the initial position.       |
+| `rowContentRevision`  | `number`                                  | `0`     | Bump to refresh mounted row content after an item is replaced in place without reassigning `items`. Does not trigger structural reconciliation or measurement resets. |
 
 ### Slots
 
@@ -275,6 +276,31 @@ For AI chat interfaces where the last message grows in real-time:
 1. Ensure `maintainBottom` is `true`.
 2. When the AI response updates, update the last item in your `items` array (immutably or deeply reactive).
 3. The scroller will keep the bottom in view as the content expands.
+
+When you keep the same `items` array and replace the streaming item in place
+for performance, also increment `rowContentRevision` so the mounted row
+re-renders with the new object:
+
+```vue
+<Or3Scroll
+    :items="messages"
+    item-key="id"
+    :row-content-revision="tailRevision"
+>
+    <!-- ... -->
+</Or3Scroll>
+```
+
+```ts
+// Same array and same key: patch the tail and invalidate its content.
+messages.value[messages.value.length - 1] = { ...tail, text: nextText };
+tailRevision.value += 1;
+```
+
+Reassigning `items` to a new array does not require the revision; the scroller
+already re-reads content when the array identity changes. The revision only
+invalidates mounted row content. It never runs keyed reconciliation, resets
+measurements, or scans history.
 
 ## Performance Tips
 

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-12
+
+### Added
+
+-   `rowContentRevision` prop. Increment it after replacing an item in place at
+    a stable key (for example, a streaming chat tail) to refresh mounted row
+    content without replacing `items`, reconciling keys, or resetting
+    measurements.
+-   `captureScrollState` and `restoreScrollState` methods for portable, keyed
+    viewport mementos.
+
+### Changed
+
+-   Modernizes the Node 24 toolchain and CI setup.
+
 ## [0.1.0] - 2026-07-27
 
 ### Changed
