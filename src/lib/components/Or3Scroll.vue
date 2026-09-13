@@ -265,8 +265,8 @@ const applyScrollTop = (
     latestScrollTop = target.scrollTop;
 };
 
-const restoreAnchor = (anchor: Anchor | null) => {
-    if (!anchor || !container.value) return;
+const restoreAnchor = (anchor: Anchor | null): boolean => {
+    if (!anchor || !container.value) return false;
     let selected:
         | { point: AnchorPoint; index: number; displacement: number }
         | undefined;
@@ -278,16 +278,19 @@ const restoreAnchor = (anchor: Anchor | null) => {
             selected = { point, index, displacement };
         }
     }
-    if (!selected) return;
+    if (!selected) return false;
     const next =
         props.paddingTop +
         engine.getOffsetForIndex(selected.index) +
         selected.point.withinItem;
-    if (Math.abs(next - container.value.scrollTop) < MEASUREMENT_EPSILON) return;
+    if (Math.abs(next - container.value.scrollTop) < MEASUREMENT_EPSILON) {
+        return true;
+    }
     const previousMode = scrollMode;
     scrollMode = 'compensatingLayout';
     applyScrollTop(next, 'compensation');
     scrollMode = previousMode;
+    return true;
 };
 
 const contentScrollTop = () =>
@@ -1013,11 +1016,16 @@ const scrollToItemKey = (
  * tab and restore it after the component has been rebound to the same content.
  */
 const captureScrollState = (): Or3ScrollViewState => {
-    if (container.value) latestScrollTop = container.value.scrollTop;
+    const target = container.value;
+    if (target) latestScrollTop = target.scrollTop;
+    const distanceFromBottom = target
+        ? target.scrollHeight - (latestScrollTop + target.clientHeight)
+        : Number.POSITIVE_INFINITY;
     return {
         version: 1,
         contentKey: props.contentKey,
-        mode: isAtBottom.value ? 'bottom' : 'anchor',
+        mode:
+            distanceFromBottom <= props.bottomThreshold ? 'bottom' : 'anchor',
         anchors: captureAnchor()?.candidates.map((candidate) => ({
             key: candidate.key,
             withinItem: candidate.withinItem,
@@ -1035,8 +1043,20 @@ const restoreScrollState = async (
     state: Or3ScrollViewState | undefined
 ): Promise<void> => {
     if (!state || state.version !== 1) return;
+    if (state.contentKey !== props.contentKey) return;
+    const expectedContentKey = props.contentKey;
+    const expectedContentGeneration = contentGeneration;
+    const generation = ++jumpGeneration;
     await nextTick();
-    if (!container.value) return;
+    if (
+        !container.value ||
+        isDestroyed ||
+        generation !== jumpGeneration ||
+        expectedContentGeneration !== contentGeneration ||
+        expectedContentKey !== props.contentKey
+    ) {
+        return;
+    }
     if (state.mode === 'bottom') {
         scrollToBottom();
         return;
@@ -1060,9 +1080,9 @@ const restoreScrollState = async (
             Number.isFinite(candidate.withinItem) &&
             Number.isSafeInteger(candidate.index)
     );
-    if (candidates.length) {
-        restoreAnchor({ candidates });
-    } else {
+    const restoredAnchor =
+        candidates.length > 0 && restoreAnchor({ candidates });
+    if (!restoredAnchor && Number.isFinite(state.scrollTop)) {
         applyScrollTop(state.scrollTop, 'jump');
     }
     scheduleScrollFrame();

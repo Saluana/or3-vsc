@@ -24,7 +24,7 @@ vi.spyOn(window.HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(
 );
 vi.spyOn(window.Element.prototype, 'clientHeight', 'get').mockReturnValue(500);
 vi.spyOn(window.HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
-    1000
+    5000
 );
 // scrollTop is a property, we can define it
 Object.defineProperty(window.HTMLElement.prototype, 'scrollTop', {
@@ -131,6 +131,120 @@ describe('Or3Scroll', () => {
             mode: expect.any(String),
         });
         await expect(vm.restoreScrollState(state)).resolves.toBeUndefined();
+    });
+
+    it('captures bottom mode from live viewport geometry', () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                estimateHeight: 50,
+            },
+        });
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+        container.scrollTop = 200;
+        container.dispatchEvent(new Event('scroll'));
+
+        expect((wrapper.vm as any).captureScrollState().mode).toBe('anchor');
+    });
+
+    it('falls back to the saved offset when anchors are unavailable', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                contentKey: 'chat-a',
+                estimateHeight: 50,
+            },
+        });
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+
+        await (wrapper.vm as any).restoreScrollState({
+            version: 1,
+            contentKey: 'chat-a',
+            mode: 'anchor',
+            anchors: [{ key: 999, withinItem: 10, index: 20 }],
+            scrollTop: 700,
+        });
+
+        expect(container.scrollTop).toBe(700);
+    });
+
+    it('falls back to the saved offset after captured anchors are deleted', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                contentKey: 'chat-a',
+                estimateHeight: 50,
+                maintainBottom: false,
+            },
+        });
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+        container.scrollTop = 1500;
+        const state = (wrapper.vm as any).captureScrollState();
+        const anchorKeys = new Set(
+            (state.anchors ?? []).map((anchor: { key: number }) => anchor.key)
+        );
+        await wrapper.setProps({
+            items: items.filter((item) => !anchorKeys.has(item.id)),
+        });
+        container.scrollTop = 0;
+
+        await (wrapper.vm as any).restoreScrollState(state);
+
+        expect(container.scrollTop).toBe(1500);
+    });
+
+    it('cancels an older jump correction before restoring', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                contentKey: 'chat-a',
+                estimateHeight: 50,
+                maintainBottom: false,
+            },
+        });
+        const vm = wrapper.vm as any;
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+
+        vm.scrollToIndex(80);
+        await vm.restoreScrollState({
+            version: 1,
+            contentKey: 'chat-a',
+            mode: 'anchor',
+            anchors: [{ key: 999, withinItem: 0, index: 12 }],
+            scrollTop: 600,
+        });
+        await nextTick();
+        await nextTick();
+
+        expect(container.scrollTop).toBe(600);
+    });
+
+    it('rejects scroll state captured for different content', async () => {
+        const wrapper = mount(Or3Scroll, {
+            props: {
+                items,
+                itemKey: (item: any) => item.id,
+                contentKey: 'chat-b',
+                estimateHeight: 50,
+                maintainBottom: false,
+            },
+        });
+        const container = wrapper.find('.or3-scroll').element as HTMLElement;
+        container.scrollTop = 250;
+
+        await (wrapper.vm as any).restoreScrollState({
+            version: 1,
+            contentKey: 'chat-a',
+            mode: 'anchor',
+            anchors: [],
+            scrollTop: 900,
+        });
+
+        expect(container.scrollTop).toBe(250);
     });
 
     it('restores a browsing anchor without letting later resizes snap to bottom', async () => {
