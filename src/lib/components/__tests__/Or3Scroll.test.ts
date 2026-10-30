@@ -303,46 +303,6 @@ describe('Or3Scroll', () => {
         expect(container.scrollTop).toBeLessThan(4500);
     });
 
-    it('exposes measureItems', async () => {
-        const rectSpy = vi
-            .spyOn(window.HTMLElement.prototype, 'getBoundingClientRect')
-            .mockReturnValue({
-                height: 0,
-                width: 0,
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                x: 0,
-                y: 0,
-                toJSON() {
-                    return {};
-                },
-            } as any);
-
-        const wrapper = mount(Or3Scroll, {
-            props: {
-                items,
-                itemKey: (item: any) => item.id,
-            },
-        });
-
-        const vm = wrapper.vm as any;
-        expect(vm.measureItems).toBeDefined();
-
-        const itemsToMeasure = [{ id: 999, text: 'New' }];
-        const promise = vm.measureItems(itemsToMeasure);
-
-        // It waits for nextTick
-        await nextTick();
-
-        const heights = await promise;
-        expect(heights).toHaveLength(1);
-        expect(heights[0]).toBe(50); // Falls back to estimateHeight when DOM reports 0
-
-        rectSpy.mockRestore();
-    });
-
     it('compensates prepend with estimates without duplicating production rows', async () => {
         const rectSpy = vi
             .spyOn(window.HTMLElement.prototype, 'getBoundingClientRect')
@@ -366,6 +326,8 @@ describe('Or3Scroll', () => {
                 itemKey: (item: any) => item.id,
                 loadingHistory: true,
                 estimateHeight: 50,
+                // History prepends while the reader browses from the top.
+                maintainBottom: false,
             },
             attachTo: document.body,
         });

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-29
+
+### Changed
+
+-   A list following its bottom (`maintainBottom`) computes its render window
+    from the bottom instead of the current offset. Content resets, wholesale
+    item replacement and mount pin to the bottom and mount the tail rows
+    directly, instead of rendering the head of a long list first and jumping
+    to the bottom a frame later. Rows mounted for new content are measured
+    before the browser paints them (at most three settling passes). Smooth
+    scrolling, active user input and browsing lists keep the offset window.
+
+### Fixed
+
+-   Row measurements and viewport resizes are applied on the next animation
+    frame, coalesced to the latest value, instead of inside ResizeObserver
+    delivery. Recycled rows no longer trigger "ResizeObserver loop completed
+    with undelivered notifications". Pending frames are cancelled on unmount.
+-   An instant programmatic scroll owns only the scroll event at its target.
+    Upward native movement after it is classified as browsing immediately, so
+    queued viewport work can no longer pull a user who started scrolling back
+    to the bottom. Bottom following also skips while the user is scrolling.
+-   With `maintainBottom` enabled, the wheel listener is non-passive so wheel
+    intent is recorded before a following write can displace a wheel jump. No
+    default action is cancelled; lists without bottom following stay passive.
+
+### Removed
+
+-   The internal hidden measurement pool and its unused `measureItems` helper.
+    Neither was reachable through the public API.
+
 ## [0.1.3] - 2026-09-12
 
 ### Fixed

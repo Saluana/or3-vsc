@@ -99,6 +99,9 @@ describe('Or3Scroll - Extended Component Tests', () => {
                     itemKey: 'id' as any,
                     estimateHeight: 40,
                     overscan: 0, // No overscan for clearer test
+                    // A following list windows from its bottom; this checks
+                    // offset-driven windowing while browsing from the top.
+                    maintainBottom: false,
                 },
                 attachTo: document.body,
             });
@@ -336,6 +339,9 @@ describe('Or3Scroll - Extended Component Tests', () => {
                     items: smallSet,
                     itemKey: 'id' as any,
                     estimateHeight: 50,
+                    // A following list measures mounted rows before paint;
+                    // a browsing list exposes the estimate-to-measured update.
+                    maintainBottom: false,
                 },
                 attachTo: document.body,
             });

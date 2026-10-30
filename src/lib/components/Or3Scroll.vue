@@ -5,7 +5,6 @@ import {
     onMounted,
     onUnmounted,
     ref,
-    shallowRef,
     useSlots,
     watch,
     type ComponentPublicInstance,
@@ -83,6 +82,7 @@ let scrollMode: ScrollMode = props.maintainBottom
     : 'userBrowsing';
 let internalScrollOwner: InternalScrollOwner = null;
 let internalScrollTarget: number | null = null;
+let internalScrollSmooth = false;
 let isUserScrolling = false;
 let isTouchActive = false;
 let suppressNativeScrollEndUntil = 0;
@@ -95,7 +95,6 @@ let resetFrameTwo = 0;
 let userScrollEndTimeout: ReturnType<typeof setTimeout> | null = null;
 let contentGeneration = 0;
 let resetGeneration = 0;
-let measurementGeneration = 0;
 let jumpGeneration = 0;
 let reachedTop = false;
 let reachedBottom = false;
@@ -260,10 +259,20 @@ const applyScrollTop = (
     const next = Math.max(0, Math.min(top, max));
     internalScrollOwner = owner;
     internalScrollTarget = next;
+    internalScrollSmooth = smooth;
     if (smooth) target.scrollTo({ top: next, behavior: 'smooth' });
     else target.scrollTop = next;
     latestScrollTop = target.scrollTop;
 };
+
+// An instant write owns only the scroll event at its target; later native
+// movement is the user's. Smooth requests and keyed jumps settle later.
+const isInternalScroll = (top: number) =>
+    internalScrollOwner !== null &&
+    (internalScrollOwner === 'jump' ||
+        internalScrollSmooth ||
+        (internalScrollTarget !== null &&
+            Math.abs(top - internalScrollTarget) < 1));
 
 const restoreAnchor = (anchor: Anchor | null): boolean => {
     if (!anchor || !container.value) return false;
@@ -296,11 +305,22 @@ const restoreAnchor = (anchor: Anchor | null): boolean => {
 const contentScrollTop = () =>
     Math.max(0, latestScrollTop - Math.max(0, props.paddingTop));
 
+const followsBottom = () =>
+    props.maintainBottom &&
+    scrollMode === 'followingBottom' &&
+    !isUserScrolling &&
+    !internalScrollSmooth;
+
 const updateRange = () => {
     const { overscanTop, overscanBottom, maxWindow } = getOverscanConfig();
     engine.updateOverscan(overscanTop, overscanBottom);
     engine.updateMaxWindow(maxWindow);
-    const range = engine.computeRange(contentScrollTop(), viewportHeight.value);
+    // A list following its bottom is pinned there before paint. Window from
+    // that destination so new content never mounts its head rows first.
+    const top = followsBottom()
+        ? Math.max(0, engine.getTotalHeight() + props.paddingBottom - viewportHeight.value)
+        : contentScrollTop();
+    const range = engine.computeRange(top, viewportHeight.value);
     if (startIndex.value !== range.startIndex) startIndex.value = range.startIndex;
     if (endIndex.value !== range.endIndex) endIndex.value = range.endIndex;
     if (offsetY.value !== range.offsetY) offsetY.value = range.offsetY;
@@ -354,7 +374,11 @@ const commitModelHeight = (
     setCommittedTrackHeight(engine.getTotalHeight());
     if (followBottom && props.maintainBottom) {
         void nextTick(() => {
-            if (!isDestroyed && scrollMode === 'followingBottom') {
+            if (
+                !isDestroyed &&
+                scrollMode === 'followingBottom' &&
+                !isUserScrolling
+            ) {
                 scrollToBottom();
             }
         });
@@ -481,7 +505,11 @@ const processScrollFrame = () => {
     if (!target || isDestroyed) return;
     latestScrollTop = target.scrollTop;
     const deltaY = latestScrollTop - processedScrollTop;
-    const isInternal = internalScrollOwner !== null;
+    const isInternal = isInternalScroll(latestScrollTop);
+    if (!isInternal) {
+        internalScrollOwner = null;
+        internalScrollTarget = null;
+    }
 
     if (!isInternal && Math.abs(deltaY) > MEASUREMENT_EPSILON) {
         isUserScrolling = true;
@@ -519,7 +547,15 @@ const scheduleScrollFrame = () => {
 
 const onScroll = () => {
     if (!container.value) return;
-    latestScrollTop = container.value.scrollTop;
+    // Classify native movement before queued viewport/row work can follow.
+    const top = container.value.scrollTop;
+    if (!isInternalScroll(top) && top < latestScrollTop - MEASUREMENT_EPSILON) {
+        internalScrollOwner = null;
+        internalScrollTarget = null;
+        isUserScrolling = true;
+        updateScrollState(top - latestScrollTop, false);
+    }
+    latestScrollTop = top;
     scheduleScrollFrame();
 };
 
@@ -536,6 +572,21 @@ const onUserScrollStart = () => {
     if (!isAtBottom.value) scrollMode = 'userBrowsing';
     cancelResetFrames();
     scheduleScrollEnd();
+};
+
+let stopWheel: (() => void) | undefined;
+
+// A following write must see wheel intent before native clamping. No default
+// action is cancelled, and lists that do not follow keep a passive listener.
+const syncWheel = () => {
+    stopWheel?.();
+    stopWheel = undefined;
+    const target = container.value;
+    if (!target) return;
+    target.addEventListener('wheel', onUserScrollStart, {
+        passive: !props.maintainBottom,
+    });
+    stopWheel = () => target.removeEventListener('wheel', onUserScrollStart);
 };
 
 const onTouchStart = () => {
@@ -565,44 +616,6 @@ const onNativeScrollEnd = () => {
     if (!scrollFrame && !isUserScrolling && internalScrollOwner !== 'jump') return;
     finishScrolling();
 };
-
-type MeasureRecord = { item: T; index: number; key: ItemKey };
-const itemsToMeasure = shallowRef<MeasureRecord[]>([]);
-const measureRefs = new Map<number, HTMLElement>();
-
-const setMeasureRef = (index: number, el: HTMLElement | null) => {
-    if (el) measureRefs.set(index, el);
-    else measureRefs.delete(index);
-};
-
-const measureRecords = async (records: MeasureRecord[]): Promise<number[]> => {
-    const generation = ++measurementGeneration;
-    if (isDestroyed) return records.map(() => NaN);
-    itemsToMeasure.value = records;
-    measureRefs.clear();
-    await nextTick();
-    if (isDestroyed || generation !== measurementGeneration) {
-        return records.map(() => NaN);
-    }
-    const heights = records.map((_, index) => {
-        const measured = measureRefs.get(index)?.getBoundingClientRect().height ?? 0;
-        return measured > 0 ? quantizeHeight(measured) : safeEstimateHeight;
-    });
-    if (generation === measurementGeneration) itemsToMeasure.value = [];
-    return heights;
-};
-
-const measureItems = async (items: T[]): Promise<number[]> =>
-    measureRecords(
-        items.map((item, index) => ({
-            item,
-            index,
-            key: getItemKey(item),
-        }))
-    );
-
-// Retained as a script binding for the existing component measurement tests.
-void measureItems;
 
 type ItemRefValue = Element | ComponentPublicInstance | null;
 const itemElements = new Map<ItemKey, HTMLElement>();
@@ -642,6 +655,7 @@ const setItemRef = (_index: number, item: T) => {
 
 const pendingUpdates = new Map<ItemKey, number>();
 let isUpdatePending = false;
+let measurementFrame = 0;
 
 const queueUpdate = (key: ItemKey, rawHeight: number) => {
     const height = quantizeHeight(rawHeight);
@@ -655,11 +669,13 @@ const queueUpdate = (key: ItemKey, rawHeight: number) => {
     pendingUpdates.set(key, height);
     if (!isUpdatePending) {
         isUpdatePending = true;
-        queueMicrotask(flushUpdates);
+        measurementFrame = requestFrame(flushUpdates);
     }
 };
 
 const flushUpdates = () => {
+    cancelFrame(measurementFrame);
+    measurementFrame = 0;
     isUpdatePending = false;
     if (pendingUpdates.size === 0 || isDestroyed) return;
     if (container.value) latestScrollTop = container.value.scrollTop;
@@ -730,6 +746,7 @@ const reconcileAll = (items: readonly T[], clearMeasurements = false) => {
             !isUserScrolling;
         preserveOrCommitModelHeight(anchor, shouldFollow);
         refreshStructuralScrollState();
+        if (shouldFollow && !clearMeasurements) settleLayout(contentGeneration);
     }
 };
 
@@ -881,9 +898,25 @@ const scheduleInitialBottom = (cancelOnContentMutation = false) => {
     });
 };
 
+// Measure rows mounted for new content before the browser paints them. A
+// measured window can mount more estimated rows; settle those as well.
+const settleLayout = (generation: number, remaining = 3) => {
+    void nextTick(() => {
+        if (isDestroyed || generation !== contentGeneration) return;
+        const start = startIndex.value;
+        const end = endIndex.value;
+        refreshMeasurements();
+        if (
+            remaining > 1 &&
+            (startIndex.value !== start || endIndex.value !== end)
+        ) {
+            settleLayout(generation, remaining - 1);
+        }
+    });
+};
+
 const resetForNewContent = () => {
     contentGeneration++;
-    measurementGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
     cancelFrame(scrollFrame);
@@ -897,8 +930,6 @@ const resetForNewContent = () => {
     suppressNativeScrollEndUntil = 0;
     cancelResetFrames();
     pendingUpdates.clear();
-    itemsToMeasure.value = [];
-    measureRefs.clear();
     itemElements.forEach((element) => resizeObserverManager.unobserve(element));
     itemElements.clear();
     itemRefSetters.clear();
@@ -906,6 +937,7 @@ const resetForNewContent = () => {
     scrollMode = props.maintainBottom ? 'followingBottom' : 'userBrowsing';
     internalScrollOwner = null;
     internalScrollTarget = null;
+    internalScrollSmooth = false;
     latestScrollTop = 0;
     processedScrollTop = 0;
     lastPrefetchStart = -1;
@@ -913,12 +945,9 @@ const resetForNewContent = () => {
     if (container.value) container.value.scrollTop = 0;
     reconcileAll(props.items, true);
     setCommittedTrackHeight(engine.getTotalHeight());
+    if (followsBottom()) scrollToBottom();
     refreshStructuralScrollState();
-    const generation = contentGeneration;
-    void nextTick(() => {
-        if (isDestroyed || generation !== contentGeneration) return;
-        refreshMeasurements();
-    });
+    settleLayout(contentGeneration);
     if (props.maintainBottom) scheduleInitialBottom();
 };
 
@@ -1100,6 +1129,8 @@ const refreshMeasurements = () => {
 const reset = () => resetForNewContent();
 
 let containerResizeObserver: ResizeObserver | null = null;
+let viewportResizeFrame = 0;
+let pendingViewportHeight = 0;
 
 const onViewportResize = (newHeight: number) => {
     if (!container.value || newHeight === viewportHeight.value) return;
@@ -1116,6 +1147,7 @@ const onViewportResize = (newHeight: number) => {
 
 onMounted(() => {
     isMounted = true;
+    syncWheel();
     const target = container.value;
     if (!target) return;
     latestScrollTop = target.scrollTop;
@@ -1123,7 +1155,14 @@ onMounted(() => {
     viewportHeight.value = target.clientHeight;
     if (typeof ResizeObserver !== 'undefined') {
         containerResizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) onViewportResize(entry.contentRect.height);
+            const entry = entries[entries.length - 1];
+            if (!entry) return;
+            pendingViewportHeight = entry.contentRect.height;
+            if (viewportResizeFrame) return;
+            viewportResizeFrame = requestFrame(() => {
+                viewportResizeFrame = 0;
+                if (!isDestroyed) onViewportResize(pendingViewportHeight);
+            });
         });
         containerResizeObserver.observe(target);
     }
@@ -1156,13 +1195,18 @@ onMounted(() => {
     updateRange();
     setCommittedTrackHeight(engine.getTotalHeight());
     emitPrefetchRange();
+    if (followsBottom() && currentKeys.length) {
+        scrollToBottom();
+        settleLayout(contentGeneration);
+    }
     if (props.maintainBottom) scheduleInitialBottom(true);
 });
 
 onUnmounted(() => {
     isDestroyed = true;
+    stopWheel?.();
+    stopWheel = undefined;
     contentGeneration++;
-    measurementGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
     cancelFrame(scrollFrame);
@@ -1170,10 +1214,14 @@ onUnmounted(() => {
     cancelResetFrames();
     if (userScrollEndTimeout) clearTimeout(userScrollEndTimeout);
     containerResizeObserver?.disconnect();
+    cancelFrame(viewportResizeFrame);
+    viewportResizeFrame = 0;
     itemElements.forEach((element) => resizeObserverManager.unobserve(element));
     itemElements.clear();
     itemRefSetters.clear();
     pendingUpdates.clear();
+    cancelFrame(measurementFrame);
+    measurementFrame = 0;
 });
 
 watch(
@@ -1226,6 +1274,7 @@ watch(
 watch(
     () => props.maintainBottom,
     (enabled) => {
+        syncWheel();
         if (!enabled) return;
         updateScrollState(0, true);
         scrollMode = isAtBottom.value ? 'followingBottom' : 'userBrowsing';
@@ -1264,7 +1313,6 @@ defineExpose({
         @touchend.passive="onTouchEnd"
         @touchcancel.passive="onTouchEnd"
         @mousedown.passive="onUserScrollStart"
-        @wheel.passive="onUserScrollStart"
         @keydown="onKeyDown"
         @scrollend.passive="onNativeScrollEnd"
     >
@@ -1296,25 +1344,6 @@ defineExpose({
                         :data-index="startIndex + i"
                     >
                         <slot :item="item" :index="startIndex + i" />
-                    </div>
-                </template>
-            </div>
-
-            <!-- Hidden Measurement Pool -->
-            <div
-                v-if="itemsToMeasure.length"
-                class="or3-scroll-hidden-pool"
-                aria-hidden="true"
-            >
-                <template
-                    v-for="(record, i) in itemsToMeasure"
-                    :key="record.key"
-                >
-                    <div
-                        :ref="el => setMeasureRef(i, el as HTMLElement | null)"
-                        class="or3-scroll-item"
-                    >
-                        <slot :item="record.item" :index="record.index" />
                     </div>
                 </template>
             </div>
@@ -1366,13 +1395,4 @@ defineExpose({
     overflow: hidden;
 }
 
-.or3-scroll-hidden-pool {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    visibility: hidden;
-    pointer-events: none;
-    z-index: -1;
-}
 </style>
