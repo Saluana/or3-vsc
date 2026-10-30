@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     frame, coalesced to the latest value, instead of inside ResizeObserver
     delivery. Recycled rows no longer trigger "ResizeObserver loop completed
     with undelivered notifications". Pending frames are cancelled on unmount.
+-   An instant programmatic scroll owns only the scroll event at its target.
+    Upward native movement after it is classified as browsing immediately, so
+    queued viewport work can no longer pull a user who started scrolling back
+    to the bottom. Bottom following also skips while the user is scrolling.
+-   With `maintainBottom` enabled, the wheel listener is non-passive so wheel
+    intent is recorded before a following write can displace a wheel jump. No
+    default action is cancelled; lists without bottom following stay passive.
 
 ### Removed
 

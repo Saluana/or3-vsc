@@ -82,6 +82,7 @@ let scrollMode: ScrollMode = props.maintainBottom
     : 'userBrowsing';
 let internalScrollOwner: InternalScrollOwner = null;
 let internalScrollTarget: number | null = null;
+let internalScrollSmooth = false;
 let isUserScrolling = false;
 let isTouchActive = false;
 let suppressNativeScrollEndUntil = 0;
@@ -258,10 +259,20 @@ const applyScrollTop = (
     const next = Math.max(0, Math.min(top, max));
     internalScrollOwner = owner;
     internalScrollTarget = next;
+    internalScrollSmooth = smooth;
     if (smooth) target.scrollTo({ top: next, behavior: 'smooth' });
     else target.scrollTop = next;
     latestScrollTop = target.scrollTop;
 };
+
+// An instant write owns only the scroll event at its target; later native
+// movement is the user's. Smooth requests and keyed jumps settle later.
+const isInternalScroll = (top: number) =>
+    internalScrollOwner !== null &&
+    (internalScrollOwner === 'jump' ||
+        internalScrollSmooth ||
+        (internalScrollTarget !== null &&
+            Math.abs(top - internalScrollTarget) < 1));
 
 const restoreAnchor = (anchor: Anchor | null): boolean => {
     if (!anchor || !container.value) return false;
@@ -352,7 +363,11 @@ const commitModelHeight = (
     setCommittedTrackHeight(engine.getTotalHeight());
     if (followBottom && props.maintainBottom) {
         void nextTick(() => {
-            if (!isDestroyed && scrollMode === 'followingBottom') {
+            if (
+                !isDestroyed &&
+                scrollMode === 'followingBottom' &&
+                !isUserScrolling
+            ) {
                 scrollToBottom();
             }
         });
@@ -479,7 +494,11 @@ const processScrollFrame = () => {
     if (!target || isDestroyed) return;
     latestScrollTop = target.scrollTop;
     const deltaY = latestScrollTop - processedScrollTop;
-    const isInternal = internalScrollOwner !== null;
+    const isInternal = isInternalScroll(latestScrollTop);
+    if (!isInternal) {
+        internalScrollOwner = null;
+        internalScrollTarget = null;
+    }
 
     if (!isInternal && Math.abs(deltaY) > MEASUREMENT_EPSILON) {
         isUserScrolling = true;
@@ -517,7 +536,15 @@ const scheduleScrollFrame = () => {
 
 const onScroll = () => {
     if (!container.value) return;
-    latestScrollTop = container.value.scrollTop;
+    // Classify native movement before queued viewport/row work can follow.
+    const top = container.value.scrollTop;
+    if (!isInternalScroll(top) && top < latestScrollTop - MEASUREMENT_EPSILON) {
+        internalScrollOwner = null;
+        internalScrollTarget = null;
+        isUserScrolling = true;
+        updateScrollState(top - latestScrollTop, false);
+    }
+    latestScrollTop = top;
     scheduleScrollFrame();
 };
 
@@ -534,6 +561,21 @@ const onUserScrollStart = () => {
     if (!isAtBottom.value) scrollMode = 'userBrowsing';
     cancelResetFrames();
     scheduleScrollEnd();
+};
+
+let stopWheel: (() => void) | undefined;
+
+// A following write must see wheel intent before native clamping. No default
+// action is cancelled, and lists that do not follow keep a passive listener.
+const syncWheel = () => {
+    stopWheel?.();
+    stopWheel = undefined;
+    const target = container.value;
+    if (!target) return;
+    target.addEventListener('wheel', onUserScrollStart, {
+        passive: !props.maintainBottom,
+    });
+    stopWheel = () => target.removeEventListener('wheel', onUserScrollStart);
 };
 
 const onTouchStart = () => {
@@ -1078,6 +1120,7 @@ const onViewportResize = (newHeight: number) => {
 
 onMounted(() => {
     isMounted = true;
+    syncWheel();
     const target = container.value;
     if (!target) return;
     latestScrollTop = target.scrollTop;
@@ -1130,6 +1173,8 @@ onMounted(() => {
 
 onUnmounted(() => {
     isDestroyed = true;
+    stopWheel?.();
+    stopWheel = undefined;
     contentGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
@@ -1198,6 +1243,7 @@ watch(
 watch(
     () => props.maintainBottom,
     (enabled) => {
+        syncWheel();
         if (!enabled) return;
         updateScrollState(0, true);
         scrollMode = isAtBottom.value ? 'followingBottom' : 'userBrowsing';
@@ -1236,7 +1282,6 @@ defineExpose({
         @touchend.passive="onTouchEnd"
         @touchcancel.passive="onTouchEnd"
         @mousedown.passive="onUserScrollStart"
-        @wheel.passive="onUserScrollStart"
         @keydown="onKeyDown"
         @scrollend.passive="onNativeScrollEnd"
     >
