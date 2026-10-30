@@ -326,6 +326,8 @@ describe('Or3Scroll', () => {
                 itemKey: (item: any) => item.id,
                 loadingHistory: true,
                 estimateHeight: 50,
+                // History prepends while the reader browses from the top.
+                maintainBottom: false,
             },
             attachTo: document.body,
         });

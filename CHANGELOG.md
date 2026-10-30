@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+-   A list following its bottom (`maintainBottom`) computes its render window
+    from the bottom instead of the current offset. Content resets, wholesale
+    item replacement and mount pin to the bottom and mount the tail rows
+    directly, instead of rendering the head of a long list first and jumping
+    to the bottom a frame later. Rows mounted for new content are measured
+    before the browser paints them (at most three settling passes). Smooth
+    scrolling, active user input and browsing lists keep the offset window.
+
 ### Fixed
 
 -   Row measurements and viewport resizes are applied on the next animation

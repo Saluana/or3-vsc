@@ -305,11 +305,22 @@ const restoreAnchor = (anchor: Anchor | null): boolean => {
 const contentScrollTop = () =>
     Math.max(0, latestScrollTop - Math.max(0, props.paddingTop));
 
+const followsBottom = () =>
+    props.maintainBottom &&
+    scrollMode === 'followingBottom' &&
+    !isUserScrolling &&
+    !internalScrollSmooth;
+
 const updateRange = () => {
     const { overscanTop, overscanBottom, maxWindow } = getOverscanConfig();
     engine.updateOverscan(overscanTop, overscanBottom);
     engine.updateMaxWindow(maxWindow);
-    const range = engine.computeRange(contentScrollTop(), viewportHeight.value);
+    // A list following its bottom is pinned there before paint. Window from
+    // that destination so new content never mounts its head rows first.
+    const top = followsBottom()
+        ? Math.max(0, engine.getTotalHeight() + props.paddingBottom - viewportHeight.value)
+        : contentScrollTop();
+    const range = engine.computeRange(top, viewportHeight.value);
     if (startIndex.value !== range.startIndex) startIndex.value = range.startIndex;
     if (endIndex.value !== range.endIndex) endIndex.value = range.endIndex;
     if (offsetY.value !== range.offsetY) offsetY.value = range.offsetY;
@@ -735,6 +746,7 @@ const reconcileAll = (items: readonly T[], clearMeasurements = false) => {
             !isUserScrolling;
         preserveOrCommitModelHeight(anchor, shouldFollow);
         refreshStructuralScrollState();
+        if (shouldFollow && !clearMeasurements) settleLayout(contentGeneration);
     }
 };
 
@@ -886,6 +898,23 @@ const scheduleInitialBottom = (cancelOnContentMutation = false) => {
     });
 };
 
+// Measure rows mounted for new content before the browser paints them. A
+// measured window can mount more estimated rows; settle those as well.
+const settleLayout = (generation: number, remaining = 3) => {
+    void nextTick(() => {
+        if (isDestroyed || generation !== contentGeneration) return;
+        const start = startIndex.value;
+        const end = endIndex.value;
+        refreshMeasurements();
+        if (
+            remaining > 1 &&
+            (startIndex.value !== start || endIndex.value !== end)
+        ) {
+            settleLayout(generation, remaining - 1);
+        }
+    });
+};
+
 const resetForNewContent = () => {
     contentGeneration++;
     jumpGeneration++;
@@ -908,6 +937,7 @@ const resetForNewContent = () => {
     scrollMode = props.maintainBottom ? 'followingBottom' : 'userBrowsing';
     internalScrollOwner = null;
     internalScrollTarget = null;
+    internalScrollSmooth = false;
     latestScrollTop = 0;
     processedScrollTop = 0;
     lastPrefetchStart = -1;
@@ -915,12 +945,9 @@ const resetForNewContent = () => {
     if (container.value) container.value.scrollTop = 0;
     reconcileAll(props.items, true);
     setCommittedTrackHeight(engine.getTotalHeight());
+    if (followsBottom()) scrollToBottom();
     refreshStructuralScrollState();
-    const generation = contentGeneration;
-    void nextTick(() => {
-        if (isDestroyed || generation !== contentGeneration) return;
-        refreshMeasurements();
-    });
+    settleLayout(contentGeneration);
     if (props.maintainBottom) scheduleInitialBottom();
 };
 
@@ -1168,6 +1195,10 @@ onMounted(() => {
     updateRange();
     setCommittedTrackHeight(engine.getTotalHeight());
     emitPrefetchRange();
+    if (followsBottom() && currentKeys.length) {
+        scrollToBottom();
+        settleLayout(contentGeneration);
+    }
     if (props.maintainBottom) scheduleInitialBottom(true);
 });
 
