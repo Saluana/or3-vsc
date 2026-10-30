@@ -1334,6 +1334,11 @@ defineExpose({
                 class="or3-scroll-slice"
                 :style="{ transform: `translateY(${offsetY + paddingTop}px)` }"
             >
+                <!-- Fixed edge elements keep rows from ever becoming the slice's
+                     first or last child. Otherwise WebKit restyles and relayouts
+                     the neighbouring row's whole subtree under :first-child or
+                     :last-child rules whenever the window shifts. -->
+                <div class="or3-scroll-edge" aria-hidden="true" />
                 <template
                     v-for="(item, i) in visibleItems"
                     :key="getItemKey(item)"
@@ -1346,6 +1351,7 @@ defineExpose({
                         <slot :item="item" :index="startIndex + i" />
                     </div>
                 </template>
+                <div class="or3-scroll-edge" aria-hidden="true" />
             </div>
 
             <!-- Debug Slot -->
