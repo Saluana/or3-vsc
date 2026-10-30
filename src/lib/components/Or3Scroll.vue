@@ -5,7 +5,6 @@ import {
     onMounted,
     onUnmounted,
     ref,
-    shallowRef,
     useSlots,
     watch,
     type ComponentPublicInstance,
@@ -95,7 +94,6 @@ let resetFrameTwo = 0;
 let userScrollEndTimeout: ReturnType<typeof setTimeout> | null = null;
 let contentGeneration = 0;
 let resetGeneration = 0;
-let measurementGeneration = 0;
 let jumpGeneration = 0;
 let reachedTop = false;
 let reachedBottom = false;
@@ -566,44 +564,6 @@ const onNativeScrollEnd = () => {
     finishScrolling();
 };
 
-type MeasureRecord = { item: T; index: number; key: ItemKey };
-const itemsToMeasure = shallowRef<MeasureRecord[]>([]);
-const measureRefs = new Map<number, HTMLElement>();
-
-const setMeasureRef = (index: number, el: HTMLElement | null) => {
-    if (el) measureRefs.set(index, el);
-    else measureRefs.delete(index);
-};
-
-const measureRecords = async (records: MeasureRecord[]): Promise<number[]> => {
-    const generation = ++measurementGeneration;
-    if (isDestroyed) return records.map(() => NaN);
-    itemsToMeasure.value = records;
-    measureRefs.clear();
-    await nextTick();
-    if (isDestroyed || generation !== measurementGeneration) {
-        return records.map(() => NaN);
-    }
-    const heights = records.map((_, index) => {
-        const measured = measureRefs.get(index)?.getBoundingClientRect().height ?? 0;
-        return measured > 0 ? quantizeHeight(measured) : safeEstimateHeight;
-    });
-    if (generation === measurementGeneration) itemsToMeasure.value = [];
-    return heights;
-};
-
-const measureItems = async (items: T[]): Promise<number[]> =>
-    measureRecords(
-        items.map((item, index) => ({
-            item,
-            index,
-            key: getItemKey(item),
-        }))
-    );
-
-// Retained as a script binding for the existing component measurement tests.
-void measureItems;
-
 type ItemRefValue = Element | ComponentPublicInstance | null;
 const itemElements = new Map<ItemKey, HTMLElement>();
 const itemRefSetters = new Map<ItemKey, (el: ItemRefValue) => void>();
@@ -642,6 +602,7 @@ const setItemRef = (_index: number, item: T) => {
 
 const pendingUpdates = new Map<ItemKey, number>();
 let isUpdatePending = false;
+let measurementFrame = 0;
 
 const queueUpdate = (key: ItemKey, rawHeight: number) => {
     const height = quantizeHeight(rawHeight);
@@ -655,11 +616,13 @@ const queueUpdate = (key: ItemKey, rawHeight: number) => {
     pendingUpdates.set(key, height);
     if (!isUpdatePending) {
         isUpdatePending = true;
-        queueMicrotask(flushUpdates);
+        measurementFrame = requestFrame(flushUpdates);
     }
 };
 
 const flushUpdates = () => {
+    cancelFrame(measurementFrame);
+    measurementFrame = 0;
     isUpdatePending = false;
     if (pendingUpdates.size === 0 || isDestroyed) return;
     if (container.value) latestScrollTop = container.value.scrollTop;
@@ -883,7 +846,6 @@ const scheduleInitialBottom = (cancelOnContentMutation = false) => {
 
 const resetForNewContent = () => {
     contentGeneration++;
-    measurementGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
     cancelFrame(scrollFrame);
@@ -897,8 +859,6 @@ const resetForNewContent = () => {
     suppressNativeScrollEndUntil = 0;
     cancelResetFrames();
     pendingUpdates.clear();
-    itemsToMeasure.value = [];
-    measureRefs.clear();
     itemElements.forEach((element) => resizeObserverManager.unobserve(element));
     itemElements.clear();
     itemRefSetters.clear();
@@ -1100,6 +1060,8 @@ const refreshMeasurements = () => {
 const reset = () => resetForNewContent();
 
 let containerResizeObserver: ResizeObserver | null = null;
+let viewportResizeFrame = 0;
+let pendingViewportHeight = 0;
 
 const onViewportResize = (newHeight: number) => {
     if (!container.value || newHeight === viewportHeight.value) return;
@@ -1123,7 +1085,14 @@ onMounted(() => {
     viewportHeight.value = target.clientHeight;
     if (typeof ResizeObserver !== 'undefined') {
         containerResizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) onViewportResize(entry.contentRect.height);
+            const entry = entries[entries.length - 1];
+            if (!entry) return;
+            pendingViewportHeight = entry.contentRect.height;
+            if (viewportResizeFrame) return;
+            viewportResizeFrame = requestFrame(() => {
+                viewportResizeFrame = 0;
+                if (!isDestroyed) onViewportResize(pendingViewportHeight);
+            });
         });
         containerResizeObserver.observe(target);
     }
@@ -1162,7 +1131,6 @@ onMounted(() => {
 onUnmounted(() => {
     isDestroyed = true;
     contentGeneration++;
-    measurementGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
     cancelFrame(scrollFrame);
@@ -1170,10 +1138,14 @@ onUnmounted(() => {
     cancelResetFrames();
     if (userScrollEndTimeout) clearTimeout(userScrollEndTimeout);
     containerResizeObserver?.disconnect();
+    cancelFrame(viewportResizeFrame);
+    viewportResizeFrame = 0;
     itemElements.forEach((element) => resizeObserverManager.unobserve(element));
     itemElements.clear();
     itemRefSetters.clear();
     pendingUpdates.clear();
+    cancelFrame(measurementFrame);
+    measurementFrame = 0;
 });
 
 watch(
@@ -1300,25 +1272,6 @@ defineExpose({
                 </template>
             </div>
 
-            <!-- Hidden Measurement Pool -->
-            <div
-                v-if="itemsToMeasure.length"
-                class="or3-scroll-hidden-pool"
-                aria-hidden="true"
-            >
-                <template
-                    v-for="(record, i) in itemsToMeasure"
-                    :key="record.key"
-                >
-                    <div
-                        :ref="el => setMeasureRef(i, el as HTMLElement | null)"
-                        class="or3-scroll-item"
-                    >
-                        <slot :item="record.item" :index="record.index" />
-                    </div>
-                </template>
-            </div>
-
             <!-- Debug Slot -->
             <slot
                 name="__debug"
@@ -1366,13 +1319,4 @@ defineExpose({
     overflow: hidden;
 }
 
-.or3-scroll-hidden-pool {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    visibility: hidden;
-    pointer-events: none;
-    z-index: -1;
-}
 </style>

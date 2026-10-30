@@ -9,7 +9,6 @@ A headless, chat-optimized virtual scroller for Vue 3. Designed for bottom-ancho
 -   **Bottom Anchoring**: Keeps the scroll position pinned to the bottom as new content arrives (chat style).
 -   **Dynamic Heights**: Handles items with variable and changing heights without jitter.
 -   **Prepend Support**: Seamlessly handles loading history (prepending items) while maintaining scroll position.
--   **Hidden Measurement**: Measures items in a hidden pool before rendering to ensure accurate scroll offsets.
 -   **Optimized Tail Rendering**: Smart tail region handling with `maxWindow` constraint prevents excessive DOM nodes while keeping recent messages always rendered.
 -   **Viewport Resize Handling**: Gracefully handles container height changes (e.g., mobile keyboards) with `ResizeObserver` integration.
 -   **Jump-to-Message**: Built-in `useScrollJump` composable for ID-based navigation with partial history loading support.
