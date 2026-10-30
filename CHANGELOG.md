@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-10-30
+
+### Fixed
+
+-   The slice renders an empty `.or3-scroll-edge` element before and after the
+    rows, so a row is never the slice's first or last child. When the window
+    shifted, WebKit restyled and relaid out the whole neighbouring row under
+    `:first-child`/`:last-child` rules (including utility rules such as
+    `space-y-*`), which left newly scrolled-in rows blank during fast iOS flings.
+
 ## [0.1.5] - 2026-10-29
 
 ### Changed
