@@ -176,3 +176,5 @@ dist-demo
 .DS_Store
 
 repomix-output.md
+# Browser regression receipts
+artifacts/
