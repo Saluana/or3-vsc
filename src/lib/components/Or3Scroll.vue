@@ -66,6 +66,7 @@ const safeEstimateHeight =
 
 const container = ref<HTMLElement | null>(null);
 const track = ref<HTMLElement | null>(null);
+const slice = ref<HTMLElement | null>(null);
 const viewportHeight = ref(0);
 const isAtBottom = ref(true);
 const startIndex = ref(0);
@@ -377,7 +378,8 @@ const commitModelHeight = (
             if (
                 !isDestroyed &&
                 scrollMode === 'followingBottom' &&
-                !isUserScrolling
+                !isUserScrolling &&
+                !smoothBottomFrame
             ) {
                 scrollToBottom();
             }
@@ -560,11 +562,12 @@ const onScroll = () => {
 };
 
 const onUserScrollStart = () => {
-    if (internalScrollOwner === 'jump') {
+    if (internalScrollOwner === 'jump' || smoothBottomFrame) {
         // A cancelled smooth jump can emit more than one stale scrollend.
         // Ignore all of them until the user-gesture fallback owns completion.
         suppressNativeScrollEndUntil = Date.now() + USER_SCROLL_END_DELAY;
     }
+    cancelSmoothBottom();
     isUserScrolling = true;
     internalScrollOwner = null;
     internalScrollTarget = null;
@@ -611,6 +614,7 @@ const onKeyDown = (event: KeyboardEvent) => {
 };
 
 const onNativeScrollEnd = () => {
+    if (smoothBottomFrame) return;
     if (isTouchActive) return;
     if (isUserScrolling && Date.now() < suppressNativeScrollEndUntil) return;
     if (!scrollFrame && !isUserScrolling && internalScrollOwner !== 'jump') return;
@@ -637,14 +641,13 @@ const setItemRef = (_index: number, item: T) => {
             if (previous === element) return;
             if (previous) resizeObserverManager.unobserve(previous);
             itemElements.set(key, element);
-            resizeObserverManager.observe(element, (entry) => {
-                const height =
-                    entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-                queueUpdate(key, height);
-            });
+            scheduleLayoutSettlement();
+            if (observationFrame) pendingObservations.set(key, element);
+            else observeRow(key, element);
         } else {
             const previous = itemElements.get(key);
             if (previous) resizeObserverManager.unobserve(previous);
+            pendingObservations.delete(key);
             itemElements.delete(key);
             itemRefSetters.delete(key);
         }
@@ -653,9 +656,60 @@ const setItemRef = (_index: number, item: T) => {
     return setter;
 };
 
+// Rows mounted during observer compensation are measured before paint, then
+// subscribed on the next frame. Observing them in the current delivery cycle
+// creates skipped notifications at the same depth and a ResizeObserver loop.
+const pendingObservations = new Map<ItemKey, HTMLElement>();
+let observationFrame = 0;
+const observePendingRows = () => {
+    observationFrame = 0;
+    for (const [key, element] of pendingObservations) {
+        if (isDestroyed || itemElements.get(key) !== element) continue;
+        queueUpdate(key, element.getBoundingClientRect().height);
+        observeRow(key, element);
+    }
+    pendingObservations.clear();
+    if (isUpdatePending) flushUpdates();
+};
+
+const observeRow = (key: ItemKey, element: HTMLElement) => {
+    resizeObserverManager.observe(element, (entry) => {
+        const height =
+            entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        queueUpdate(key, height);
+        // Compensate geometry now; normally recycle on the next frame.
+        // Large contractions also refill the range before paint.
+        if (!observerFlushPending) {
+            observerFlushPending = true;
+            queueMicrotask(() => {
+                observerFlushPending = false;
+                flushUpdates(false);
+            });
+        }
+    });
+};
+
 const pendingUpdates = new Map<ItemKey, number>();
 let isUpdatePending = false;
 let measurementFrame = 0;
+let observerFlushPending = false;
+let layoutSettlementPending = false;
+let smoothBottomFrame = 0;
+
+const cancelSmoothBottom = () => {
+    cancelFrame(smoothBottomFrame);
+    smoothBottomFrame = 0;
+    internalScrollSmooth = false;
+};
+
+const scheduleLayoutSettlement = () => {
+    if (layoutSettlementPending) return;
+    layoutSettlementPending = true;
+    void nextTick(() => {
+        layoutSettlementPending = false;
+        if (!isDestroyed) settleLayout(contentGeneration);
+    });
+};
 
 const queueUpdate = (key: ItemKey, rawHeight: number) => {
     const height = quantizeHeight(rawHeight);
@@ -669,11 +723,11 @@ const queueUpdate = (key: ItemKey, rawHeight: number) => {
     pendingUpdates.set(key, height);
     if (!isUpdatePending) {
         isUpdatePending = true;
-        measurementFrame = requestFrame(flushUpdates);
+        measurementFrame = requestFrame(() => flushUpdates());
     }
 };
 
-const flushUpdates = () => {
+const flushUpdates = (recycleRows = true) => {
     cancelFrame(measurementFrame);
     measurementFrame = 0;
     isUpdatePending = false;
@@ -682,6 +736,7 @@ const flushUpdates = () => {
     // ResizeObserver runs after layout. Capture from the old engine model so
     // an above-viewport resize restores the position from before that layout.
     const anchor = captureModelAnchor();
+    const previousHeight = engine.getTotalHeight();
     let changed = false;
     for (const [key, height] of pendingUpdates) {
         const index = indexByKey.get(key);
@@ -699,12 +754,29 @@ const flushUpdates = () => {
     }
     pendingUpdates.clear();
     if (!changed) return;
-    updateRange();
+    if (recycleRows) {
+        updateRange();
+    } else {
+        offsetY.value = engine.getOffsetForIndex(startIndex.value);
+        totalHeight.value = engine.getTotalHeight();
+        if (slice.value) slice.value.style.transform = `translateY(${offsetY.value + props.paddingTop}px)`;
+        scheduleScrollFrame();
+    }
     const shouldFollow =
         props.maintainBottom &&
         scrollMode === 'followingBottom' &&
         !isUserScrolling;
     preserveOrCommitModelHeight(anchor, shouldFollow);
+    // A large contraction can expose space beyond the old mounted window.
+    // Fill it before paint, after restoring the anchor against the new model.
+    // Newly mounted rows defer observation, so this cannot extend RO delivery.
+    if (
+        !recycleRows &&
+        previousHeight - engine.getTotalHeight() > getOverscanConfig().overscanBottom
+    ) {
+        if (!observationFrame) observationFrame = requestFrame(observePendingRows);
+        updateRange();
+    }
     refreshStructuralScrollState();
 };
 
@@ -814,6 +886,10 @@ const syncItems = async () => {
         return;
     }
     if (props.mutationMode === 'arbitrary') {
+        // Parent renders can replace the itemKey function without changing any
+        // keys. Reconciliation here would capture already-resized DOM against
+        // the old height model before ResizeObserver can compensate it.
+        if (nextCount === oldCount && items.every((item, index) => getItemKey(item) === currentKeys[index])) return;
         reconcileAll(items);
         return;
     }
@@ -916,6 +992,7 @@ const settleLayout = (generation: number, remaining = 3) => {
 };
 
 const resetForNewContent = () => {
+    cancelSmoothBottom();
     contentGeneration++;
     jumpGeneration++;
     scrollFrameGeneration++;
@@ -953,13 +1030,31 @@ const resetForNewContent = () => {
 
 const scrollToBottom = (opts: { smooth?: boolean } = {}) => {
     if (!container.value) return;
+    cancelSmoothBottom();
     scrollMode = 'followingBottom';
     setCommittedTrackHeight(engine.getTotalHeight());
     const target = Math.max(
         0,
         currentCommittedScrollHeight() - container.value.clientHeight
     );
-    applyScrollTop(target, 'bottom', opts.smooth === true);
+    if (opts.smooth && typeof requestAnimationFrame === 'function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        const start = container.value.scrollTop;
+        let started: number | undefined;
+        const animate = (timestamp: number) => {
+            if (isDestroyed || !container.value) return;
+            started ??= timestamp;
+            const progress = Math.min(1, Math.max(0, (timestamp - started) / 280));
+            const destination = Math.max(0, currentCommittedScrollHeight() - container.value.clientHeight);
+            applyScrollTop(start + (destination - start) * (1 - (1 - progress) ** 3), 'bottom');
+            internalScrollSmooth = progress < 1;
+            smoothBottomFrame = progress < 1 ? requestAnimationFrame(animate) : 0;
+            scheduleScrollFrame();
+        };
+        internalScrollSmooth = true;
+        smoothBottomFrame = requestAnimationFrame(animate);
+    } else {
+        applyScrollTop(target, 'bottom');
+    }
     scheduleScrollFrame();
 };
 
@@ -989,6 +1084,7 @@ const scrollToIndex = (
     ) {
         return;
     }
+    cancelSmoothBottom();
     cancelResetFrames();
     const generation = ++jumpGeneration;
     const align = opts.align ?? 'start';
@@ -1090,6 +1186,7 @@ const restoreScrollState = async (
         scrollToBottom();
         return;
     }
+    cancelSmoothBottom();
     // A restored anchor is browsing intent. Cancel any scheduled bottom
     // placement and stop later layout compensation from re-claiming the
     // viewport through followingBottom.
@@ -1204,6 +1301,9 @@ onMounted(() => {
 
 onUnmounted(() => {
     isDestroyed = true;
+    cancelFrame(observationFrame);
+    pendingObservations.clear();
+    cancelSmoothBottom();
     stopWheel?.();
     stopWheel = undefined;
     contentGeneration++;
@@ -1233,6 +1333,12 @@ watch(
     },
     () => void syncItems(),
     { immediate: true }
+);
+
+watch(
+    () => props.rowContentRevision,
+    scheduleLayoutSettlement,
+    { flush: 'post' }
 );
 
 watch(
@@ -1275,7 +1381,11 @@ watch(
     () => props.maintainBottom,
     (enabled) => {
         syncWheel();
-        if (!enabled) return;
+        if (!enabled) {
+            cancelSmoothBottom();
+            scrollMode = 'userBrowsing';
+            return;
+        }
         updateScrollState(0, true);
         scrollMode = isAtBottom.value ? 'followingBottom' : 'userBrowsing';
     }
@@ -1331,6 +1441,7 @@ defineExpose({
                 <slot name="prepend-loading" />
             </div>
             <div
+                ref="slice"
                 class="or3-scroll-slice"
                 :style="{ transform: `translateY(${offsetY + paddingTop}px)` }"
             >
@@ -1378,6 +1489,8 @@ defineExpose({
 .or3-scroll-track {
     position: relative;
     width: 100%;
+    /* Clip wide content at the viewport, without making each row a scrollport. */
+    overflow-x: clip;
 }
 
 .or3-scroll-slice {
@@ -1398,7 +1511,7 @@ defineExpose({
 
 .or3-scroll-item {
     /* Prevent margin collapse - ensures measured height matches rendered height */
-    overflow: hidden;
+    display: flow-root;
 }
 
 </style>

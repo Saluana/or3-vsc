@@ -29,3 +29,22 @@ jobs:
 
     - name: Test
       run: bun run test
+
+    - name: Install browser engines
+      run: bunx playwright install --with-deps chromium webkit
+
+    - name: Browser regressions (Chromium)
+      run: bun run test:browser
+
+    - name: Browser regressions (WebKit)
+      run: bun run test:browser
+      env:
+        SCROLL_BROWSER: webkit
+        SCROLL_EVIDENCE_DIR: artifacts/browser-webkit
+
+    - name: Preserve browser receipts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: browser-regressions
+        path: artifacts/

@@ -341,3 +341,28 @@ measurements, or scans history.
 -   **`[or3-scroll] Container has 0 height`**: The parent element of `<Or3Scroll>` must have a defined height (e.g., `height: 500px` or `flex: 1` in a flex container). If the height is 0, the virtualizer cannot calculate the visible range.
 -   **`[or3-scroll] Duplicate item key detected`**: Ensure every item in the `items` array has a unique key (defined by `itemKey`). Duplicate keys cause rendering artifacts.
 -   **`[or3-scroll] estimateHeight must be positive`**: The `estimateHeight` prop must be greater than 0.
+
+### Streaming layout and smooth navigation
+
+Newly mounted rows and explicit row-content revisions settle their measurements
+before paint. ResizeObserver compensation updates geometry immediately while row
+recycling waits until the next frame, avoiding observer delivery loops. Rows use
+`display: flow-root` to contain margins without clipping focus rings or sticky
+children; horizontal overflow is clipped by the shared track.
+
+`scrollToBottom({ smooth: true })` follows the changing bottom over a bounded
+animation. Wheel, touch, keyboard, another navigation or teardown cancels it;
+reduced-motion preferences use an instant jump. Bottom-follow measurement writes
+do not interrupt that animation. The wheel listener remains non-passive when
+`maintainBottom` is enabled so user intent wins before native scroll clamping.
+
+ResizeObserver compensation normally defers row recycling to the next frame.
+When measured content contracts by more than the bottom overscan, the mounted
+range is refilled before paint after restoring the visible anchor. Rows mounted
+by this refill are measured before paint and subscribed to ResizeObserver on the next frame
+to avoid undelivered-notification loops.
+
+Run `bun run test:browser` for repeatable collapse and anchor regressions in
+Chromium, or set `SCROLL_BROWSER=webkit` for WebKit. JSON receipts and failure
+screenshots are written to `artifacts/browser-regressions/` (override with
+`SCROLL_EVIDENCE_DIR`).
